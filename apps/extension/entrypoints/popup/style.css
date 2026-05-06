@@ -74,23 +74,55 @@ button {
   text-align: left;
 }
 
+button:disabled {
+  background: #8da1aa;
+  cursor: wait;
+}
+
 button:hover {
   background: #174a5a;
 }
 
-.context {
+.context,
+.result {
   border-top: 1px solid #dfe5e8;
   display: grid;
   gap: 4px;
   padding-top: 12px;
 }
 
-.context strong {
+.context strong,
+.result strong {
   color: #172026;
 }
 
-.context small {
+.context small,
+.result small {
   overflow-wrap: anywhere;
+}
+
+dl {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  margin: 6px 0 0;
+}
+
+dl div {
+  background: #edf2f4;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+dt {
+  color: #52616b;
+  font-size: 11px;
+}
+
+dd {
+  color: #172026;
+  font-size: 13px;
+  margin: 0;
 }
 
 .message {
