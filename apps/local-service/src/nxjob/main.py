@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import uvicorn
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from nxjob import __version__
+from nxjob.api.applications import router as applications_router
 from nxjob.api.health import router as health_router
+from nxjob.api.job_leads import router as job_leads_router
+from nxjob.api.resume_versions import router as resume_versions_router
+from nxjob.db.migrations import initialize_database
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_database()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -13,6 +25,7 @@ def create_app() -> FastAPI:
         title="NxJob Local Service",
         version=__version__,
         description="Local runtime service for NxJob browser extension workflows.",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -24,6 +37,9 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(job_leads_router)
+    app.include_router(resume_versions_router)
+    app.include_router(applications_router)
     return app
 
 

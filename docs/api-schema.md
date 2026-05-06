@@ -106,6 +106,22 @@ Response:
 }
 ```
 
+### GET /api/v1/job-leads/{job_lead_id}
+
+Purpose: read one captured job lead.
+
+Response:
+
+```json
+{
+  "id": "string",
+  "source_url": "string",
+  "source_site": "company_ats",
+  "status": "captured",
+  "jd_text": "string"
+}
+```
+
 ### POST /api/v1/sponsorship/analyze
 
 Future MCP tool name: `analyze_sponsorship`.
@@ -270,6 +286,54 @@ Response:
     "resume_version_id": "string",
     "status": "applied"
   }
+}
+```
+
+### GET /api/v1/applications/{application_id}
+
+Purpose: read one application record.
+
+Response:
+
+```json
+{
+  "id": "string",
+  "job_lead_id": "string",
+  "resume_version_id": "string",
+  "status": "applied"
+}
+```
+
+### POST /api/v1/resume-versions
+
+Purpose: create a stored resume version record. M5 will replace manual record creation with `POST /api/v1/resumes/tailor`.
+
+Response:
+
+```json
+{
+  "trace_id": "string",
+  "resume_version": {
+    "id": "string",
+    "job_lead_id": "string",
+    "format": "docx",
+    "file_path": "string"
+  }
+}
+```
+
+### GET /api/v1/resume-versions/{resume_version_id}
+
+Purpose: read one resume version record.
+
+Response:
+
+```json
+{
+  "id": "string",
+  "job_lead_id": "string",
+  "format": "docx",
+  "file_path": "string"
 }
 ```
 
