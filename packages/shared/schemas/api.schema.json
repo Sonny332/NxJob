@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nxjob.local/schemas/api.schema.json",
+  "title": "NxJob Phase 1 API Schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1.0"
+    },
+    "sponsorshipStatus": {
+      "enum": [
+        "supports",
+        "does_not_support",
+        "likely_supports",
+        "likely_not_supports",
+        "needs_confirmation",
+        "unknown"
+      ]
+    },
+    "applicationStatus": {
+      "enum": [
+        "captured",
+        "reviewing",
+        "skipped",
+        "tailored",
+        "ready_to_apply",
+        "applied",
+        "replied",
+        "interviewing",
+        "offer",
+        "rejected",
+        "closed"
+      ]
+    },
+    "workflowName": {
+      "enum": [
+        "analyze_sponsorship",
+        "tailor_resume",
+        "draft_form_answer_from_resume_bullets"
+      ]
+    }
+  },
+  "required": ["schemaVersion"]
+}
+

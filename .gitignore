@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.python-deps/
+.pip-tmp/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.output/
+.wxt/
+.npm-cache/
+npm-debug.log*
+
+# NxJob local data
+.nxjob/
+data/local/
+installers/
+releases/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
