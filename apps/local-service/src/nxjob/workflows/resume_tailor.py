@@ -39,6 +39,8 @@ def tailor_resume_content(
     job_lead: JobLeadRecord,
     bullets: list[MasterResumeBullet],
     success_references: list[SuccessReferenceRecord],
+    candidate_name: str = "Candidate",
+    contact_line: str = "",
 ) -> TailorDraft:
     jd_keywords = extract_keywords(job_lead.jd_text)
     success_keywords = [
@@ -61,7 +63,8 @@ def tailor_resume_content(
 
     return TailorDraft(
         content=TailoredResumeContent(
-            candidate_name="Candidate",
+            candidate_name=candidate_name or "Candidate",
+            contact_line=contact_line,
             headline=headline,
             summary=summary,
             skills=skills,

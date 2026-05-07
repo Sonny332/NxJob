@@ -111,6 +111,14 @@ class MasterResumeBullet(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class MasterResumeProfile(BaseModel):
+    id: str = "master_default"
+    candidate_name: str = "Candidate"
+    contact_line: str = ""
+    bullets: list[MasterResumeBullet] = Field(default_factory=list)
+    fixed_answers: dict[str, str] = Field(default_factory=dict)
+
+
 class ResumeTailorConstraints(BaseModel):
     format: ResumeFormat = "docx"
     target_length: str = "one_page_preferred"
@@ -119,6 +127,7 @@ class ResumeTailorConstraints(BaseModel):
 
 class TailoredResumeContent(BaseModel):
     candidate_name: str = "Candidate"
+    contact_line: str = ""
     headline: str = "Tailored Resume"
     summary: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
@@ -128,7 +137,9 @@ class TailoredResumeContent(BaseModel):
 class ResumeTailorRequest(BaseModel):
     job_lead_id: str
     master_resume_id: str = "master_default"
-    master_resume_bullets: list[MasterResumeBullet]
+    master_resume_bullets: list[MasterResumeBullet] = Field(default_factory=list)
+    candidate_name: str = ""
+    contact_line: str = ""
     constraints: ResumeTailorConstraints = Field(default_factory=ResumeTailorConstraints)
     success_reference_limit: int = Field(default=3, ge=0, le=10)
 
@@ -187,6 +198,41 @@ class ApplicationRecord(BaseModel):
 
 class ApplicationResponse(TraceResponse):
     application: ApplicationRecord
+
+
+class FieldContext(BaseModel):
+    label: str = ""
+    placeholder: str = ""
+    surrounding_text: str = ""
+    current_value: str = ""
+    input_type: str = ""
+
+
+class FormAnswerDraftCreate(BaseModel):
+    job_lead_id: str
+    application_id: str = ""
+    field_context: FieldContext
+    jd_text: str = ""
+    master_resume_bullets: list[MasterResumeBullet] = Field(default_factory=list)
+    profile_vault_id: str = "master_default"
+
+
+class FormAnswerDraftRecord(BaseModel):
+    id: str
+    job_lead_id: str
+    application_id: str
+    created_at: str
+    field_label: str
+    answer: str
+    referenced_bullets: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    requires_user_review: bool = True
+    prompt_log_id: str = ""
+
+
+class FormAnswerDraftResponse(TraceResponse):
+    draft: FormAnswerDraftRecord
+    ai_used: bool = True
 
 
 class WorkflowTraceRecord(BaseModel):

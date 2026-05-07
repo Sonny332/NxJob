@@ -1,5 +1,7 @@
 import { browser } from "wxt/browser";
 
+import type { FieldContext } from "./form-context";
+
 export type PageContext = {
   url: string;
   title: string;
@@ -17,5 +19,30 @@ export async function captureActiveTabContext(): Promise<PageContext> {
   return browser.tabs.sendMessage(tab.id, {
     type: "NXJOB_CAPTURE_PAGE_CONTEXT"
   }) as Promise<PageContext>;
+}
+
+export async function captureActiveFieldContext(): Promise<FieldContext> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab?.id) {
+    throw new Error("No active tab is available.");
+  }
+
+  return browser.tabs.sendMessage(tab.id, {
+    type: "NXJOB_CAPTURE_ACTIVE_FIELD_CONTEXT"
+  }) as Promise<FieldContext>;
+}
+
+export async function fillActiveField(value: string): Promise<{ filled: boolean }> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab?.id) {
+    throw new Error("No active tab is available.");
+  }
+
+  return browser.tabs.sendMessage(tab.id, {
+    type: "NXJOB_FILL_ACTIVE_FIELD",
+    value
+  }) as Promise<{ filled: boolean }>;
 }
 

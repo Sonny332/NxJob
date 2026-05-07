@@ -34,6 +34,12 @@ def render_resume_docx(content: TailoredResumeContent, output_path: Path) -> Pat
     headline_run = headline.add_run(content.headline)
     headline_run.font.size = Pt(9)
 
+    if content.contact_line:
+        contact = document.add_paragraph()
+        contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        contact_run = contact.add_run(content.contact_line)
+        contact_run.font.size = Pt(8.5)
+
     _add_section(document, "SUMMARY", content.summary)
     if content.skills:
         skills = document.add_paragraph()

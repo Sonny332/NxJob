@@ -1,3 +1,4 @@
+import type { FieldContext } from "./form-context";
 import type { PageContext } from "./page-capture";
 
 const API_BASE_URL = "http://127.0.0.1:8765";
@@ -65,6 +66,31 @@ export type SponsorshipAnalyzeResponse = {
   ai_used: boolean;
 };
 
+export type ResumeTailorResponse = {
+  trace_id: string;
+  resume_version: {
+    id: string;
+    file_path: string;
+    format: "docx";
+    selected_bullets: string[];
+    change_summary: string;
+  };
+  used_success_references: string[];
+  warnings: string[];
+};
+
+export type FormAnswerDraftResponse = {
+  trace_id: string;
+  draft: {
+    id: string;
+    answer: string;
+    referenced_bullets: string[];
+    risk_flags: string[];
+    requires_user_review: boolean;
+  };
+  ai_used: boolean;
+};
+
 export async function checkHealth(): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE_URL}/health`);
 
@@ -127,6 +153,56 @@ export async function analyzeSponsorship(
   }
 
   return response.json() as Promise<SponsorshipAnalyzeResponse>;
+}
+
+export async function tailorResume(jobLead: JobLeadRecord): Promise<ResumeTailorResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/resumes/tailor`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: jobLead.id
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ResumeTailorResponse>;
+}
+
+export async function draftFormAnswer(
+  jobLead: JobLeadRecord,
+  fieldContext: FieldContext
+): Promise<FormAnswerDraftResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/forms/draft-answer`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: jobLead.id,
+      field_context: {
+        label: fieldContext.label,
+        placeholder: fieldContext.placeholder,
+        surrounding_text: fieldContext.surroundingText,
+        current_value: fieldContext.currentValue,
+        input_type: fieldContext.inputType
+      },
+      jd_text: jobLead.jd_text,
+      profile_vault_id: "master_default"
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<FormAnswerDraftResponse>;
 }
 
 function inferSourceSite(url: string): SourceSite {

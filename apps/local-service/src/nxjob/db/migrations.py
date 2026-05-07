@@ -4,7 +4,7 @@ import sqlite3
 
 from nxjob.db.connection import db_session
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def initialize_database() -> None:
@@ -135,6 +135,23 @@ def apply_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_success_references_job_lead
           ON success_references (job_lead_id, outcome_at);
+
+        CREATE TABLE IF NOT EXISTS form_answer_drafts (
+          id TEXT PRIMARY KEY,
+          job_lead_id TEXT NOT NULL,
+          application_id TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          field_label TEXT NOT NULL DEFAULT '',
+          answer TEXT NOT NULL,
+          referenced_bullets_json TEXT NOT NULL DEFAULT '[]',
+          risk_flags_json TEXT NOT NULL DEFAULT '[]',
+          requires_user_review INTEGER NOT NULL DEFAULT 1,
+          prompt_log_id TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (job_lead_id) REFERENCES job_leads (id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_form_answer_drafts_job_lead
+          ON form_answer_drafts (job_lead_id, created_at);
         """
     )
     connection.execute(

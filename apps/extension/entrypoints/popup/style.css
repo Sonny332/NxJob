@@ -84,8 +84,18 @@ button:hover {
   background: #0058a6;
 }
 
+.secondary {
+  background: #101418;
+  text-align: center;
+}
+
+.secondary:hover {
+  background: #2a3037;
+}
+
 .context,
 .result,
+.draft,
 .sponsorship {
   border-top: 1px solid #dfe5e8;
   display: grid;
@@ -95,6 +105,7 @@ button:hover {
 
 .context strong,
 .result strong,
+.draft strong,
 .sponsorship strong {
   color: #101418;
 }
@@ -209,6 +220,21 @@ dd {
 }
 
 .questions li {
+  margin: 0 0 4px;
+}
+
+.draft {
+  color: #5c6670;
+  display: grid;
+  gap: 8px;
+}
+
+.draft ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.draft li {
   margin: 0 0 4px;
 }
 
