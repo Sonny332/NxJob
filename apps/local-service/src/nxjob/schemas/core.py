@@ -105,6 +105,34 @@ class SponsorshipAnalyzeResponse(TraceResponse):
     ai_used: bool = False
 
 
+class MasterResumeBullet(BaseModel):
+    id: str
+    text: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class ResumeTailorConstraints(BaseModel):
+    format: ResumeFormat = "docx"
+    target_length: str = "one_page_preferred"
+    ats_friendly: bool = True
+
+
+class TailoredResumeContent(BaseModel):
+    candidate_name: str = "Candidate"
+    headline: str = "Tailored Resume"
+    summary: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    experience_bullets: list[str] = Field(default_factory=list)
+
+
+class ResumeTailorRequest(BaseModel):
+    job_lead_id: str
+    master_resume_id: str = "master_default"
+    master_resume_bullets: list[MasterResumeBullet]
+    constraints: ResumeTailorConstraints = Field(default_factory=ResumeTailorConstraints)
+    success_reference_limit: int = Field(default=3, ge=0, le=10)
+
+
 class ResumeVersionCreate(BaseModel):
     job_lead_id: str
     source_master_resume_id: str = ""
@@ -121,6 +149,12 @@ class ResumeVersionCreate(BaseModel):
 class ResumeVersionRecord(ResumeVersionCreate):
     id: str
     created_at: str
+
+
+class ResumeTailorResponse(TraceResponse):
+    resume_version: ResumeVersionRecord
+    used_success_references: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ResumeVersionResponse(TraceResponse):
@@ -162,4 +196,35 @@ class WorkflowTraceRecord(BaseModel):
     input_summary: str = ""
     output_summary: str = ""
     status: Literal["started", "completed", "failed"] = "completed"
+
+
+class PromptLogCreate(BaseModel):
+    trace_id: str
+    workflow_name: WorkflowName
+    input_summary: str = ""
+    model: str = ""
+    provider: str = "local_stub"
+    token_usage: dict[str, Any] = Field(default_factory=dict)
+    output_summary: str = ""
+    raw_output_path: str = ""
+    error: str = ""
+
+
+class PromptLogRecord(PromptLogCreate):
+    id: str
+    created_at: str
+
+
+class SuccessReferenceRecord(BaseModel):
+    id: str
+    application_id: str
+    job_lead_id: str
+    resume_version_id: str
+    outcome_type: str
+    outcome_at: str
+    source: str
+    search_query: str
+    effective_keywords: list[str] = Field(default_factory=list)
+    effective_bullets: list[str] = Field(default_factory=list)
+    user_notes: str = ""
 

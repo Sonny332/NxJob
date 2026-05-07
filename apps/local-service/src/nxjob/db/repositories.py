@@ -11,9 +11,12 @@ from nxjob.schemas.core import (
     ApplicationRecord,
     JobLeadCapture,
     JobLeadRecord,
+    PromptLogCreate,
+    PromptLogRecord,
     ResumeVersionCreate,
     ResumeVersionRecord,
     SponsorshipAnalyzeResponse,
+    SuccessReferenceRecord,
     WorkflowTraceRecord,
 )
 
@@ -146,6 +149,13 @@ def get_resume_version(connection: sqlite3.Connection, record_id: str) -> Resume
     return row_to_resume_version(row)
 
 
+def update_job_lead_status(connection: sqlite3.Connection, record_id: str, status: str) -> None:
+    connection.execute(
+        "UPDATE job_leads SET status = ? WHERE id = ?",
+        (status, record_id),
+    )
+
+
 def row_to_application(row: sqlite3.Row) -> ApplicationRecord:
     return ApplicationRecord(
         id=row["id"],
@@ -219,6 +229,93 @@ def create_workflow_trace(
         ),
     )
     return record
+
+
+def row_to_prompt_log(row: sqlite3.Row) -> PromptLogRecord:
+    return PromptLogRecord(
+        id=row["id"],
+        trace_id=row["trace_id"],
+        workflow_name=row["workflow_name"],
+        created_at=row["created_at"],
+        input_summary=row["input_summary"],
+        model=row["model"],
+        provider=row["provider"],
+        token_usage=json.loads(row["token_usage_json"] or "{}"),
+        output_summary=row["output_summary"],
+        raw_output_path=row["raw_output_path"],
+        error=row["error"],
+    )
+
+
+def create_prompt_log(connection: sqlite3.Connection, payload: PromptLogCreate) -> PromptLogRecord:
+    record_id = new_id("prm")
+    connection.execute(
+        """
+        INSERT INTO prompt_logs (
+          id, trace_id, workflow_name, created_at, input_summary, model, provider,
+          token_usage_json, output_summary, raw_output_path, error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record_id,
+            payload.trace_id,
+            payload.workflow_name,
+            utc_now(),
+            payload.input_summary,
+            payload.model,
+            payload.provider,
+            json.dumps(payload.token_usage, ensure_ascii=False),
+            payload.output_summary,
+            payload.raw_output_path,
+            payload.error,
+        ),
+    )
+    return get_prompt_log(connection, record_id)
+
+
+def get_prompt_log(connection: sqlite3.Connection, record_id: str) -> PromptLogRecord:
+    row = connection.execute("SELECT * FROM prompt_logs WHERE id = ?", (record_id,)).fetchone()
+    if row is None:
+        raise KeyError(record_id)
+    return row_to_prompt_log(row)
+
+
+def row_to_success_reference(row: sqlite3.Row) -> SuccessReferenceRecord:
+    return SuccessReferenceRecord(
+        id=row["id"],
+        application_id=row["application_id"],
+        job_lead_id=row["job_lead_id"],
+        resume_version_id=row["resume_version_id"],
+        outcome_type=row["outcome_type"],
+        outcome_at=row["outcome_at"],
+        source=row["source"],
+        search_query=row["search_query"],
+        effective_keywords=json.loads(row["effective_keywords_json"] or "[]"),
+        effective_bullets=json.loads(row["effective_bullets_json"] or "[]"),
+        user_notes=row["user_notes"],
+    )
+
+
+def list_success_references(
+    connection: sqlite3.Connection,
+    keywords: list[str],
+    limit: int,
+) -> list[SuccessReferenceRecord]:
+    if limit <= 0:
+        return []
+
+    rows = connection.execute(
+        "SELECT * FROM success_references ORDER BY outcome_at DESC LIMIT 50"
+    ).fetchall()
+    references = [row_to_success_reference(row) for row in rows]
+    keyword_set = {keyword.lower() for keyword in keywords}
+
+    def score(reference: SuccessReferenceRecord) -> tuple[int, str]:
+        matched = keyword_set.intersection(keyword.lower() for keyword in reference.effective_keywords)
+        return len(matched), reference.outcome_at
+
+    return sorted(references, key=score, reverse=True)[:limit]
 
 
 def create_sponsorship_evidence(

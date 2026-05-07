@@ -184,6 +184,8 @@ Future MCP tool name: `tailor_resume`.
 
 Purpose: generate a tailored DOCX resume from a JD, master resume bullets, and success references.
 
+M5 implementation note: Phase 1 uses a deterministic local tailoring stub instead of a real AI provider. The endpoint still follows the future MCP tool shape, stores a `PromptLog`, and records token-like character usage so the provider can be swapped later without changing the caller contract. The workflow passes only the current JD keywords, supplied master bullets, and the limited success reference summaries; it does not send the full application history.
+
 Request:
 
 ```json
@@ -205,6 +207,16 @@ Request:
   "success_reference_limit": 3
 }
 ```
+
+Rules:
+
+- `master_resume_bullets` is required.
+- MVP only supports `constraints.format: "docx"`.
+- The generated DOCX is written by the local service under the generated resume storage directory.
+- Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
+- `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
+- Success references are retrieved by keyword overlap and returned as ids in `used_success_references`.
+- Strict PDF/page-count validation is not part of M5; M5 uses basic DOCX existence validation and returns a warning.
 
 Response:
 
