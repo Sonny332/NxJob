@@ -15,6 +15,7 @@ Before every release:
 - `docs/install-windows.md` is current.
 - `docs/release-test-record.md` is copied or filled for this release.
 - Local service install/start/status/stop/uninstall scripts are present in the package.
+- Root-level `.bat` launchers are present for one-click install/start/status/stop/uninstall.
 - Installer test result is recorded.
 - Version differences from the previous release are recorded.
 - Desktop/local-service data source and browser-extension data source boundaries are clear.

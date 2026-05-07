@@ -72,20 +72,22 @@ try {
 - python -m pytest apps/local-service/tests -q: $checksText
 - scripts/package/build-release.ps1: Passed
 - scripts/package/validate-release.ps1: Pending
+- root .bat launchers: Generated
 
 ## Manual Smoke Test
 
 - Local service install script completed:
-- scripts/start-local-service.ps1 -Background starts the service:
-- scripts/check-health.ps1 returns ok:
-- scripts/status-local-service.ps1 reports healthy:
+- Install NxJob Local Service.bat completes:
+- Start NxJob Local Service.bat starts the service:
+- Check NxJob Local Service.bat returns ok:
+- Status NxJob Local Service.bat reports healthy:
 - Browser extension loads:
 - Analyze Sponsorship button works:
 - Tailor Resume button creates a DOCX:
 - Fill Form Answer drafts and fills only after confirmation:
 - Outcome entry creates SuccessReference:
-- scripts/stop-local-service.ps1 stops the service:
-- scripts/uninstall-local-service.ps1 removes service files:
+- Stop NxJob Local Service.bat stops the service:
+- Uninstall NxJob Local Service.bat removes service files:
 
 ## Data Boundary
 

@@ -14,6 +14,7 @@ $ArtifactsDir = [System.IO.Path]::GetFullPath($ArtifactsDir)
 $stage = Join-Path $ArtifactsDir "nxjob-local-service-$Version"
 $zipPath = Join-Path $ArtifactsDir "nxjob-local-service-$Version.zip"
 $scriptSourceDir = Join-Path $root "scripts\package\local-service-scripts"
+$rootScriptSourceDir = Join-Path $root "scripts\package\local-service-root-scripts"
 
 if (Test-Path -LiteralPath $stage) {
   Remove-Item -LiteralPath $stage -Recurse -Force
@@ -31,7 +32,8 @@ Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $stag
 Copy-Item -LiteralPath (Join-Path $root "docs\install-windows.md") -Destination (Join-Path $stage "docs\install-windows.md") -Force
 Copy-Item -LiteralPath (Join-Path $root "docs\master-resume-format.md") -Destination (Join-Path $stage "docs\master-resume-format.md") -Force
 Copy-Item -LiteralPath (Join-Path $root "docs\privacy-boundary.md") -Destination (Join-Path $stage "docs\privacy-boundary.md") -Force
-Copy-Item -Path (Join-Path $scriptSourceDir "*.ps1") -Destination (Join-Path $stage "scripts") -Force
+Copy-Item -Path (Join-Path $scriptSourceDir "*") -Destination (Join-Path $stage "scripts") -Force
+Copy-Item -Path (Join-Path $rootScriptSourceDir "*.bat") -Destination $stage -Force
 Set-Content -LiteralPath (Join-Path $stage "VERSION") -Value $Version -Encoding UTF8
 
 if (Test-Path -LiteralPath $zipPath) {
