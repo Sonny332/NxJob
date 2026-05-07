@@ -376,6 +376,8 @@ Response:
 
 Purpose: record a reply, screen, interview, rejection, offer, or other outcome.
 
+M7 implementation note: positive outcomes (`positive_reply`, `screen`, `interview`, `offer`) automatically create a `SuccessReference` when a matching `ResumeVersion` exists. Negative or closed outcomes update tracking status but do not become success references.
+
 Request:
 
 ```json
@@ -389,6 +391,44 @@ Request:
   "user_notes": "string"
 }
 ```
+
+Rules:
+
+- `job_lead_id` and `outcome_type` are required.
+- If `application_id` is provided, it must belong to the same `JobLead`.
+- Positive outcomes update `Application` and `JobLead` status and create a `SuccessReference`.
+- `rejection`, `no_response`, and `closed` update status but do not create a `SuccessReference`.
+- `SuccessReference.effective_bullets` is copied from the submitted `ResumeVersion.selected_bullets`.
+- `SuccessReference.effective_keywords` is derived from the original JD text.
+
+### GET /api/v1/success-references
+
+Purpose: list positive market signals for tracker views and future tailoring.
+
+Response:
+
+```json
+{
+  "trace_id": "string",
+  "success_references": [
+    {
+      "id": "string",
+      "application_id": "string",
+      "job_lead_id": "string",
+      "resume_version_id": "string",
+      "outcome_type": "screen",
+      "outcome_at": "string",
+      "search_query": "string",
+      "effective_keywords": ["string"],
+      "effective_bullets": ["string"]
+    }
+  ]
+}
+```
+
+### GET /api/v1/success-references/{success_reference_id}
+
+Purpose: read a success reference with its linked `JobLead`, `ResumeVersion`, and optional `Application`.
 
 Response:
 

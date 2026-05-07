@@ -27,6 +27,8 @@ The repository may contain:
 
 During MVP development, a real master resume may be used only as a local private file. The local service can read it through `NXJOB_MASTER_RESUME_PATH`, but the file must not be staged, committed, or uploaded to GitHub.
 
+Current local MVP setup may place the user's real master resume at `private/master-resume/`. This directory is intentionally ignored by Git.
+
 ## Future Direction
 
 NxJob should later provide a helper skill or UI flow that converts a normal resume into the structured master resume format. That generated file still belongs to local private storage unless the user explicitly exports it.
