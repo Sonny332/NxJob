@@ -30,6 +30,33 @@ function Wait-ForHealth {
   throw "NxJob Local Service did not become healthy at $Uri."
 }
 
+function Get-PortOwnerSummary {
+  param(
+    [string]$Address,
+    [int]$Port
+  )
+  try {
+    $connection = Get-NetTCPConnection -LocalAddress $Address -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($connection) {
+      $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+      $name = if ($process) { $process.ProcessName } else { "unknown" }
+      return "PID $($connection.OwningProcess) ($name)"
+    }
+  }
+  catch {
+    return ""
+  }
+  return ""
+}
+
+function Get-LogTail {
+  param([string]$Path)
+  if (Test-Path -LiteralPath $Path) {
+    return (Get-Content -LiteralPath $Path -Tail 40 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+  }
+  return ""
+}
+
 if (-not $InstallRoot) {
   if (-not $env:LOCALAPPDATA) {
     throw "LOCALAPPDATA is not set. Pass -InstallRoot explicitly."
@@ -50,6 +77,11 @@ $healthUri = "http://${HostAddress}:${Port}/health"
 if (Test-Health -Uri $healthUri) {
   Write-Host "NxJob Local Service is already healthy at $healthUri"
   return
+}
+
+$owner = Get-PortOwnerSummary -Address $HostAddress -Port $Port
+if ($owner) {
+  throw "Port ${HostAddress}:${Port} is already in use by $owner, but it is not responding as NxJob. Stop that process or start NxJob on a different port."
 }
 
 $arguments = @(
@@ -73,6 +105,15 @@ if ($Background) {
     $current = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
     if (-not $current) {
       Remove-Item -LiteralPath (Join-Path $InstallRoot "nxjob-local-service.pid") -Force -ErrorAction SilentlyContinue
+      $errorTail = Get-LogTail -Path $stderr
+      if ($errorTail) {
+        throw "NxJob Local Service exited before becoming healthy at $healthUri.$([Environment]::NewLine)$errorTail"
+      }
+      throw "NxJob Local Service exited before becoming healthy at $healthUri. No stderr log was written."
+    }
+    $errorTail = Get-LogTail -Path $stderr
+    if ($errorTail) {
+      throw "NxJob Local Service process $($process.Id) is still running but did not become healthy at $healthUri.$([Environment]::NewLine)$errorTail"
     }
     throw
   }
