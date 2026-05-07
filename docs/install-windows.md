@@ -24,7 +24,7 @@ Prerequisites:
 4. Start the service:
 
 ```powershell
-.\scripts\start-local-service.ps1
+.\scripts\start-local-service.ps1 -Background
 ```
 
 5. Check health:
@@ -40,6 +40,18 @@ Expected result:
   "status": "ok",
   "service": "nxjob-local-service"
 }
+```
+
+6. Check service status:
+
+```powershell
+.\scripts\status-local-service.ps1
+```
+
+7. Stop the service when needed:
+
+```powershell
+.\scripts\stop-local-service.ps1
 ```
 
 ## Configure Private Master Resume
@@ -70,10 +82,10 @@ Do not place real resume content in Git-tracked folders.
 
 ## Uninstall
 
-Remove the local service folder:
+Run:
 
 ```powershell
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\NxJob\LocalService"
+.\scripts\uninstall-local-service.ps1
 ```
 
 Remove the unpacked browser extension from the browser extension page.

@@ -13,6 +13,7 @@
     "extension:typecheck": "npm --workspace @nxjob/extension run typecheck",
     "extension:zip": "npm --workspace @nxjob/extension run zip",
     "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package/build-release.ps1",
+    "release:validate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package/validate-release.ps1",
     "shared:check": "npm --workspace @nxjob/shared run check"
   }
 }
