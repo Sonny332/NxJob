@@ -4,11 +4,20 @@ import {
   analyzeSponsorship,
   captureJobLead,
   checkHealth,
+  draftFormAnswer,
+  tailorResume,
   type CaptureJobLeadResponse,
+  type FormAnswerDraftResponse,
+  type ResumeTailorResponse,
   type SponsorshipAnalyzeResponse,
   type SponsorshipStatus
 } from "../../src/lib/api-client";
-import { captureActiveTabContext, type PageContext } from "../../src/lib/page-capture";
+import {
+  captureActiveFieldContext,
+  captureActiveTabContext,
+  fillActiveField,
+  type PageContext
+} from "../../src/lib/page-capture";
 
 type ServiceState = "checking" | "online" | "offline";
 type ActionName = (typeof ACTIONS)[number];
@@ -24,6 +33,8 @@ export function App() {
   const [pageContext, setPageContext] = useState<PageContext | null>(null);
   const [captureResult, setCaptureResult] = useState<CaptureJobLeadResponse | null>(null);
   const [sponsorshipResult, setSponsorshipResult] = useState<SponsorshipAnalyzeResponse | null>(null);
+  const [resumeResult, setResumeResult] = useState<ResumeTailorResponse | null>(null);
+  const [formAnswerResult, setFormAnswerResult] = useState<FormAnswerDraftResponse | null>(null);
   const [activeAction, setActiveAction] = useState<ActionName | null>(null);
   const [message, setMessage] = useState("Ready.");
 
@@ -44,8 +55,11 @@ export function App() {
     setActiveAction(action);
     setCaptureResult(null);
     setSponsorshipResult(null);
+    setResumeResult(null);
+    setFormAnswerResult(null);
 
     try {
+      const fieldContext = action === "Fill Form Answer" ? await captureActiveFieldContext() : null;
       const context = await captureActiveTabContext();
       setPageContext(context);
 
@@ -67,11 +81,38 @@ export function App() {
         return;
       }
 
+      if (action === "Tailor Resume") {
+        const resume = await tailorResume(result.job_lead);
+        setResumeResult(resume);
+        setMessage(`Resume generated: ${resume.resume_version.id}.`);
+        return;
+      }
+
+      if (action === "Fill Form Answer") {
+        if (!fieldContext) {
+          setMessage("Focus a form field first, then retry Fill Form Answer.");
+          return;
+        }
+        const draft = await draftFormAnswer(result.job_lead, fieldContext);
+        setFormAnswerResult(draft);
+        setMessage("Draft generated. Review before filling the field.");
+        return;
+      }
+
       setMessage(`${action} captured JobLead ${result.job_lead.id}. Workflow execution starts in a later milestone.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to capture page context.");
     } finally {
       setActiveAction(null);
+    }
+  }
+
+  async function confirmFill(answer: string) {
+    try {
+      await fillActiveField(answer);
+      setMessage("Filled current field. Review the page before submitting.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to fill current field.");
     }
   }
 
@@ -166,6 +207,33 @@ export function App() {
         </section>
       ) : null}
 
+      {resumeResult ? (
+        <section className="result" aria-label="Tailored resume result">
+          <strong>Tailored Resume</strong>
+          <p>{resumeResult.resume_version.id}</p>
+          <small>{resumeResult.resume_version.file_path}</small>
+          <small>{resumeResult.resume_version.change_summary}</small>
+        </section>
+      ) : null}
+
+      {formAnswerResult ? (
+        <section className="draft" aria-label="Form answer draft">
+          <strong>Answer Draft</strong>
+          <p>{formAnswerResult.draft.answer}</p>
+          <small>{formAnswerResult.ai_used ? "AI draft" : "Fixed profile answer"} - Requires review</small>
+          {formAnswerResult.draft.risk_flags.length > 0 ? (
+            <ul>
+              {formAnswerResult.draft.risk_flags.map((flag) => (
+                <li key={flag}>{flag}</li>
+              ))}
+            </ul>
+          ) : null}
+          <button type="button" className="secondary" onClick={() => confirmFill(formAnswerResult.draft.answer)}>
+            Fill Current Field
+          </button>
+        </section>
+      ) : null}
+
       <p className="message">{message}</p>
     </main>
   );
@@ -181,7 +249,10 @@ async function refreshServiceState(): Promise<boolean> {
 }
 
 function actionProgressLabel(action: ActionName): string {
-  return action === "Analyze Sponsorship" ? "Analyzing..." : "Capturing...";
+  if (action === "Analyze Sponsorship") return "Analyzing...";
+  if (action === "Tailor Resume") return "Tailoring...";
+  if (action === "Fill Form Answer") return "Drafting...";
+  return "Capturing...";
 }
 
 function sponsorshipLabel(status: SponsorshipStatus): string {

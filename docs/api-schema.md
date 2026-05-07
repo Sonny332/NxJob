@@ -211,6 +211,7 @@ Request:
 Rules:
 
 - `master_resume_bullets` is required.
+- If `master_resume_bullets` is omitted, the local service reads the private JSON file configured by `NXJOB_MASTER_RESUME_PATH`.
 - MVP only supports `constraints.format: "docx"`.
 - The generated DOCX is written by the local service under the generated resume storage directory.
 - Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
@@ -241,6 +242,8 @@ Future MCP tool name: `draft_form_answer_from_resume_bullets`.
 
 Purpose: draft an answer for the current form field using profile facts and master resume bullets.
 
+M6 implementation note: fixed personal facts are read from the private master resume `fixed_answers` map and do not consume AI. Open-ended questions use the current JD, field context, and the smallest matching set of master resume bullets. The plugin must show the draft first; the user must explicitly confirm before NxJob fills the focused field. NxJob never clicks submit.
+
 Request:
 
 ```json
@@ -264,6 +267,15 @@ Request:
   "profile_vault_id": "string"
 }
 ```
+
+Rules:
+
+- `job_lead_id` and `field_context` are required.
+- `requires_user_review` is always `true`.
+- Fixed answers can return `ai_used: false`.
+- Open-ended answers return referenced bullet ids and risk flags.
+- If `master_resume_bullets` is omitted, the local service reads `NXJOB_MASTER_RESUME_PATH`.
+- Filling a field is a plugin UI confirmation action, not a backend submit action.
 
 Response:
 

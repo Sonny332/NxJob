@@ -9,6 +9,7 @@ from uuid import uuid4
 from nxjob.schemas.core import (
     ApplicationCreate,
     ApplicationRecord,
+    FormAnswerDraftRecord,
     JobLeadCapture,
     JobLeadRecord,
     PromptLogCreate,
@@ -316,6 +317,34 @@ def list_success_references(
         return len(matched), reference.outcome_at
 
     return sorted(references, key=score, reverse=True)[:limit]
+
+
+def create_form_answer_draft(
+    connection: sqlite3.Connection,
+    payload: FormAnswerDraftRecord,
+) -> FormAnswerDraftRecord:
+    connection.execute(
+        """
+        INSERT INTO form_answer_drafts (
+          id, job_lead_id, application_id, created_at, field_label, answer,
+          referenced_bullets_json, risk_flags_json, requires_user_review, prompt_log_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            payload.id,
+            payload.job_lead_id,
+            payload.application_id,
+            payload.created_at,
+            payload.field_label,
+            payload.answer,
+            json.dumps(payload.referenced_bullets, ensure_ascii=False),
+            json.dumps(payload.risk_flags, ensure_ascii=False),
+            int(payload.requires_user_review),
+            payload.prompt_log_id,
+        ),
+    )
+    return payload
 
 
 def create_sponsorship_evidence(

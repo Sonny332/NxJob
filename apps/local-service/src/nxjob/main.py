@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from nxjob import __version__
 from nxjob.api.applications import router as applications_router
+from nxjob.api.forms import router as forms_router
 from nxjob.api.health import router as health_router
 from nxjob.api.job_leads import router as job_leads_router
 from nxjob.api.resumes import router as resumes_router
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app.include_router(job_leads_router)
     app.include_router(resume_versions_router)
     app.include_router(resumes_router)
+    app.include_router(forms_router)
     app.include_router(applications_router)
     app.include_router(sponsorship_router)
     return app

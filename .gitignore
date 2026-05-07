@@ -22,6 +22,7 @@ npm-debug.log*
 # NxJob local data
 .nxjob/
 data/local/
+private/
 installers/
 releases/
 
