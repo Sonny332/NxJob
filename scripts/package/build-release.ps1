@@ -48,6 +48,9 @@ try {
   & (Join-Path $root "scripts\package\build-extension.ps1") -Version $Version -ArtifactsDir $artifactsDir
 
   $recordPath = Join-Path $artifactsDir "release-test-record-$Version.md"
+  $manifestPath = Join-Path $artifactsDir "release-manifest.json"
+  $bundleStage = Join-Path $artifactsDir "NxJob-$Version"
+  $bundleZip = Join-Path $artifactsDir "NxJob-$Version.zip"
   $checksText = if ($SkipChecks) { "Skipped by -SkipChecks" } else { "Passed through build-release.ps1" }
   @"
 # Release Test Record
@@ -61,6 +64,7 @@ try {
 
 ## Artifacts
 
+- One-click Windows package: NxJob-$Version.zip
 - Local service package: nxjob-local-service-$Version.zip
 - Browser extension package: nxjob-extension-$Version.zip
 - Release manifest: release-manifest.json
@@ -110,6 +114,7 @@ try {
     commit = $commit
     created_at = (Get-Date).ToString("o")
     artifacts = @(
+      "NxJob-$Version.zip",
       "nxjob-local-service-$Version.zip",
       "nxjob-extension-$Version.zip",
       "release-manifest.json",
@@ -118,11 +123,25 @@ try {
     checks = if ($SkipChecks) { "skipped" } else { "shared:check, extension:typecheck, pytest" }
     notes = "Windows-first MVP package. Private data is excluded."
   }
-  $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $artifactsDir "release-manifest.json") -Encoding UTF8
+  $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+  if (Test-Path -LiteralPath $bundleStage) {
+    Remove-Item -LiteralPath $bundleStage -Recurse -Force
+  }
+  if (Test-Path -LiteralPath $bundleZip) {
+    Remove-Item -LiteralPath $bundleZip -Force
+  }
+  Expand-Archive -LiteralPath (Join-Path $artifactsDir "nxjob-local-service-$Version.zip") -DestinationPath $bundleStage -Force
+  Copy-Item -LiteralPath (Join-Path $artifactsDir "nxjob-extension-$Version.zip") -Destination (Join-Path $bundleStage "nxjob-extension-$Version.zip") -Force
+  Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $bundleStage "release-manifest.json") -Force
+  Copy-Item -LiteralPath $recordPath -Destination (Join-Path $bundleStage "release-test-record-$Version.md") -Force
+  Compress-Archive -Path (Join-Path $bundleStage "*") -DestinationPath $bundleZip -Force
 
   if (-not $SkipValidation) {
     & (Join-Path $root "scripts\package\validate-release.ps1") -Version $Version -ArtifactsDir $artifactsDir
     (Get-Content -LiteralPath $recordPath -Raw).Replace("scripts/package/validate-release.ps1: Pending", "scripts/package/validate-release.ps1: Passed") | Set-Content -LiteralPath $recordPath -Encoding UTF8
+    Copy-Item -LiteralPath $recordPath -Destination (Join-Path $bundleStage "release-test-record-$Version.md") -Force
+    Compress-Archive -Path (Join-Path $bundleStage "*") -DestinationPath $bundleZip -Force
   }
   Write-Host "Release artifacts written to $artifactsDir"
 }

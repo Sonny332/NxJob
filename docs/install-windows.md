@@ -1,6 +1,12 @@
 # NxJob Windows Install
 
-NxJob MVP ships as two artifacts:
+NxJob MVP ships with a one-click Windows package:
+
+- `NxJob-<version>.zip`
+
+Do not use GitHub's automatic `Source code (zip)` download for installation. The source zip contains project files and packaging templates, so its `.bat` files are not arranged as a user installer.
+
+Component packages are also generated for developers:
 
 - `nxjob-local-service-<version>.zip`
 - `nxjob-extension-<version>.zip`
@@ -13,7 +19,7 @@ Prerequisites:
 - Python 3.11 or newer available as `python`.
 - Network access for Python dependency installation unless dependencies are already cached.
 
-1. Extract `nxjob-local-service-<version>.zip`.
+1. Extract `NxJob-<version>.zip`.
 2. Double-click:
 
 ```text
@@ -95,10 +101,11 @@ Do not place real resume content in Git-tracked folders.
 
 ## Install Browser Extension
 
-1. Extract `nxjob-extension-<version>.zip`.
-2. Open a Chromium browser extension page.
-3. Enable developer mode.
-4. Load the extracted extension folder.
+1. In the extracted `NxJob-<version>` folder, find `nxjob-extension-<version>.zip`.
+2. Extract `nxjob-extension-<version>.zip`.
+3. Open a Chromium browser extension page.
+4. Enable developer mode.
+5. Load the extracted extension folder.
 
 ## Runtime Boundary
 

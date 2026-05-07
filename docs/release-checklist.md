@@ -7,6 +7,7 @@ Before every release:
 - Version is updated.
 - Git tag is created.
 - Release notes describe user-facing changes and known limits.
+- One-click Windows package `NxJob-<version>.zip` is generated.
 - Windows local-service installer is generated.
 - Browser extension package is generated.
 - `release-manifest.json` is generated.
@@ -16,6 +17,7 @@ Before every release:
 - `docs/release-test-record.md` is copied or filled for this release.
 - Local service install/start/status/stop/uninstall scripts are present in the package.
 - Root-level `.bat` launchers are present for one-click install/start/status/stop/uninstall.
+- GitHub release description tells users to download `NxJob-<version>.zip`, not `Source code (zip)`.
 - Installer test result is recorded.
 - Version differences from the previous release are recorded.
 - Desktop/local-service data source and browser-extension data source boundaries are clear.

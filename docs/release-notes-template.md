@@ -12,10 +12,13 @@
 
 Download:
 
+- `NxJob-X.Y.Z.zip`
 - `nxjob-local-service-X.Y.Z.zip`
 - `nxjob-extension-X.Y.Z.zip`
 
 Follow `docs/install-windows.md`.
+
+For non-technical users, use `NxJob-X.Y.Z.zip`. Do not use GitHub's automatic `Source code (zip)` archive as an installer.
 
 ## Known Limits
 
