@@ -11,6 +11,7 @@ from nxjob.api.applications import router as applications_router
 from nxjob.api.health import router as health_router
 from nxjob.api.job_leads import router as job_leads_router
 from nxjob.api.resume_versions import router as resume_versions_router
+from nxjob.api.sponsorship import router as sponsorship_router
 from nxjob.db.migrations import initialize_database
 
 
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(job_leads_router)
     app.include_router(resume_versions_router)
     app.include_router(applications_router)
+    app.include_router(sponsorship_router)
     return app
 
 

@@ -1,6 +1,6 @@
 :root {
-  color: #172026;
-  background: #f7f8f8;
+  color: #101418;
+  background: #f5f7fa;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -12,7 +12,7 @@ body {
 .shell {
   display: grid;
   gap: 14px;
-  padding: 16px;
+  padding: 14px;
 }
 
 .header {
@@ -34,8 +34,9 @@ h1 {
 
 .header p,
 .context,
+.sponsorship,
 .message {
-  color: #52616b;
+  color: #5c6670;
   font-size: 13px;
 }
 
@@ -63,9 +64,9 @@ h1 {
 }
 
 button {
-  background: #1f5f74;
+  background: #0070d1;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   color: white;
   cursor: pointer;
   font: inherit;
@@ -75,16 +76,17 @@ button {
 }
 
 button:disabled {
-  background: #8da1aa;
+  background: #8b98a7;
   cursor: wait;
 }
 
 button:hover {
-  background: #174a5a;
+  background: #0058a6;
 }
 
 .context,
-.result {
+.result,
+.sponsorship {
   border-top: 1px solid #dfe5e8;
   display: grid;
   gap: 4px;
@@ -92,8 +94,9 @@ button:hover {
 }
 
 .context strong,
-.result strong {
-  color: #172026;
+.result strong,
+.sponsorship strong {
+  color: #101418;
 }
 
 .context small,
@@ -109,8 +112,9 @@ dl {
 }
 
 dl div {
-  background: #edf2f4;
-  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e7ee;
+  border-radius: 8px;
   padding: 6px;
 }
 
@@ -120,9 +124,92 @@ dt {
 }
 
 dd {
-  color: #172026;
+  color: #101418;
   font-size: 13px;
   margin: 0;
+}
+
+.sponsorship {
+  gap: 10px;
+}
+
+.sponsorship-header {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sponsorship-header div {
+  display: grid;
+  gap: 2px;
+}
+
+.sponsorship-header span {
+  color: #101418;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.status-pill {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #45515f;
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 3px 7px;
+}
+
+.status-pill-supports,
+.status-pill-likely_supports {
+  border-color: #7bb48d;
+  color: #1d6a3b;
+}
+
+.status-pill-does_not_support,
+.status-pill-likely_not_supports {
+  border-color: #d19a91;
+  color: #8d2e23;
+}
+
+.status-pill-needs_confirmation {
+  border-color: #d5b66d;
+  color: #7a5812;
+}
+
+.status-pill-unknown {
+  border-color: #b8c1cc;
+  color: #45515f;
+}
+
+.evidence-list,
+.questions {
+  display: grid;
+  gap: 6px;
+}
+
+.evidence-list article {
+  background: #ffffff;
+  border: 1px solid #e2e7ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+}
+
+.evidence-list article span {
+  color: #5c6670;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.questions ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.questions li {
+  margin: 0 0 4px;
 }
 
 .message {
