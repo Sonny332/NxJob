@@ -15,6 +15,7 @@ M9 improves the MVP packaging flow without changing NxJob's product behavior.
 
 Each release folder should contain:
 
+- `NxJob-<version>.zip`
 - `nxjob-local-service-<version>.zip`
 - `nxjob-extension-<version>.zip`
 - `release-manifest.json`
@@ -27,6 +28,8 @@ Run:
 ```
 
 The build script runs automated checks, builds both packages, writes the release manifest, writes a release test record, and validates the artifacts.
+
+`NxJob-<version>.zip` is the default user-facing package. Its zip root must contain the one-click `.bat` launchers. Users should not install from GitHub's automatic source archive because that archive preserves repository paths such as `scripts/package/local-service-root-scripts`.
 
 ## Local Service Package Contract
 

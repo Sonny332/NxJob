@@ -41,6 +41,10 @@ $python = Join-Path $InstallRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python)) {
   throw "NxJob Local Service is not installed. Run scripts\install-local-service.ps1 first."
 }
+$serviceSrc = Join-Path $InstallRoot "app\local-service\src"
+if (-not (Test-Path -LiteralPath $serviceSrc)) {
+  throw "NxJob Local Service source is missing at $serviceSrc. Run scripts\install-local-service.ps1 again."
+}
 
 $healthUri = "http://${HostAddress}:${Port}/health"
 if (Test-Health -Uri $healthUri) {
@@ -50,7 +54,7 @@ if (Test-Health -Uri $healthUri) {
 
 $arguments = @(
   "-m", "uvicorn", "nxjob.main:app",
-  "--app-dir", (Join-Path $InstallRoot "src"),
+  "--app-dir", $serviceSrc,
   "--host", $HostAddress,
   "--port", "$Port"
 )
@@ -62,7 +66,16 @@ if ($Background) {
   $stderr = Join-Path $logDir "service.err.log"
   $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $InstallRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
   Set-Content -LiteralPath (Join-Path $InstallRoot "nxjob-local-service.pid") -Value $process.Id -Encoding UTF8
-  Wait-ForHealth -Uri $healthUri
+  try {
+    Wait-ForHealth -Uri $healthUri
+  }
+  catch {
+    $current = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+    if (-not $current) {
+      Remove-Item -LiteralPath (Join-Path $InstallRoot "nxjob-local-service.pid") -Force -ErrorAction SilentlyContinue
+    }
+    throw
+  }
   Write-Host "NxJob Local Service started in background at $healthUri"
   Write-Host "PID: $($process.Id)"
   return

@@ -37,6 +37,8 @@ if (-not $InstallRoot) {
 }
 
 $sourceRoot = Join-Path $PSScriptRoot "..\app\local-service"
+$packageRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$installedServiceRoot = Join-Path $InstallRoot "app\local-service"
 $venv = Join-Path $InstallRoot ".venv"
 $pythonCommand = Get-Command python -ErrorAction Stop
 $versionText = (& $pythonCommand.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
@@ -53,9 +55,12 @@ if ((Test-Path -LiteralPath $InstallRoot) -and -not $Force) {
 
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "logs") | Out-Null
-Copy-Item -Path (Join-Path $sourceRoot "*") -Destination $InstallRoot -Recurse -Force
+New-Item -ItemType Directory -Force -Path $installedServiceRoot | Out-Null
+Copy-Item -Path (Join-Path $sourceRoot "*") -Destination $installedServiceRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $packageRoot "README.md") -Destination (Join-Path $InstallRoot "README.md") -Force
+Copy-Item -LiteralPath (Join-Path $packageRoot "LICENSE") -Destination (Join-Path $InstallRoot "LICENSE") -Force
 
-Push-Location $InstallRoot
+Push-Location $installedServiceRoot
 try {
   if (-not (Test-Path -LiteralPath $venv)) {
     Invoke-Checked $pythonCommand.Source -m venv $venv
@@ -71,6 +76,7 @@ finally {
 $state = [ordered]@{
   version = Get-PackageVersion
   install_root = $InstallRoot
+  service_root = $installedServiceRoot
   installed_at = (Get-Date).ToString("o")
   python = (Join-Path $venv "Scripts\python.exe")
 }

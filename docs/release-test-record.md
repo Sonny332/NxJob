@@ -11,6 +11,7 @@ Use this file as the template for each release. Copy it into the release notes o
 
 ## Artifacts
 
+- One-click Windows package:
 - Local service package:
 - Browser extension package:
 - Release manifest:

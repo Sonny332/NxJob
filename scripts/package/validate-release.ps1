@@ -59,11 +59,13 @@ function Assert-ZipExcludes {
 
 $localServiceZip = Join-Path $ArtifactsDir "nxjob-local-service-$Version.zip"
 $extensionZip = Join-Path $ArtifactsDir "nxjob-extension-$Version.zip"
+$bundleZip = Join-Path $ArtifactsDir "NxJob-$Version.zip"
 $manifestPath = Join-Path $ArtifactsDir "release-manifest.json"
 $recordPath = Join-Path $ArtifactsDir "release-test-record-$Version.md"
 
 Assert-Exists -Path $localServiceZip
 Assert-Exists -Path $extensionZip
+Assert-Exists -Path $bundleZip
 Assert-Exists -Path $manifestPath
 Assert-Exists -Path $recordPath
 
@@ -126,6 +128,37 @@ Assert-ZipExcludes -Entries $extensionEntries -ForbiddenPatterns @(
   "node_modules/*",
   "*/node_modules/*",
   "*.map"
+)
+
+$bundleEntries = Get-ZipEntries -ZipPath $bundleZip
+Assert-ZipContains -Entries $bundleEntries -Required @(
+  "Install NxJob Local Service.bat",
+  "Start NxJob Local Service.bat",
+  "Check NxJob Local Service.bat",
+  "Status NxJob Local Service.bat",
+  "Stop NxJob Local Service.bat",
+  "Uninstall NxJob Local Service.bat",
+  "scripts/install-local-service.ps1",
+  "scripts/install-local-service.bat",
+  "docs/install-windows.md",
+  "release-manifest.json",
+  "release-test-record-$Version.md",
+  "nxjob-extension-$Version.zip"
+)
+Assert-ZipExcludes -Entries $bundleEntries -ForbiddenPatterns @(
+  "scripts/package/*",
+  "*/scripts/package/*",
+  "private/*",
+  "*/private/*",
+  "*.db",
+  "*.sqlite",
+  "*.sqlite3",
+  ".venv/*",
+  "*/.venv/*",
+  ".pytest_cache/*",
+  "*/.pytest_cache/*",
+  "__pycache__/*",
+  "*/__pycache__/*"
 )
 
 Write-Host "Release validation passed for $Version"
