@@ -1,6 +1,6 @@
-const API_BASE_URL = "http://127.0.0.1:8765";
-
 import type { PageContext } from "./page-capture";
+
+const API_BASE_URL = "http://127.0.0.1:8765";
 
 export type HealthResponse = {
   status: "ok";
@@ -34,6 +34,35 @@ export type CaptureJobLeadResponse = {
     is_duplicate: boolean;
     existing_job_lead_id: string | null;
   };
+};
+
+export type SponsorshipStatus =
+  | "supports"
+  | "does_not_support"
+  | "likely_supports"
+  | "likely_not_supports"
+  | "needs_confirmation"
+  | "unknown";
+
+export type SponsorshipEvidenceItem = {
+  source: string;
+  evidence_text: string;
+  evidence_url: string;
+  confidence: number;
+};
+
+export type SponsorshipAnalyzeResponse = {
+  trace_id: string;
+  sponsorship: {
+    status: SponsorshipStatus;
+    confidence: number;
+    summary: string;
+    risk_flags: string[];
+    questions_to_confirm: string[];
+    is_legal_conclusion: boolean;
+  };
+  evidence: SponsorshipEvidenceItem[];
+  ai_used: boolean;
 };
 
 export async function checkHealth(): Promise<HealthResponse> {
@@ -70,6 +99,34 @@ export async function captureJobLead(context: PageContext): Promise<CaptureJobLe
   }
 
   return response.json() as Promise<CaptureJobLeadResponse>;
+}
+
+export async function analyzeSponsorship(
+  jobLead: JobLeadRecord,
+  context: PageContext
+): Promise<SponsorshipAnalyzeResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/sponsorship/analyze`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: jobLead.id,
+      jd_text: jobLead.jd_text,
+      company_name: jobLead.company_name,
+      job_url: context.url,
+      application_form_text: "",
+      allow_public_lookup: false,
+      allow_ai: true
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SponsorshipAnalyzeResponse>;
 }
 
 function inferSourceSite(url: string): SourceSite {

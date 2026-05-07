@@ -128,6 +128,8 @@ Future MCP tool name: `analyze_sponsorship`.
 
 Purpose: analyze sponsorship support using JD rules first, then AI and public evidence only when needed.
 
+M4 implementation note: Phase 1 does not perform public web lookup yet. `allow_public_lookup` is accepted for MCP-compatible shape, but the local service ignores it until a later milestone. If local rules cannot decide and `allow_ai` is true, M4 uses a deterministic AI-fallback stub so the workflow, UI, trace, and evidence contracts are testable before a real provider is wired.
+
 Request:
 
 ```json
@@ -141,6 +143,15 @@ Request:
   "allow_ai": true
 }
 ```
+
+Rules:
+
+- `job_lead_id` is required.
+- If `jd_text` is empty, the local service reads `JobLead.jd_text`.
+- Explicit sponsorship / no-sponsorship wording is handled locally and must return `ai_used: false`.
+- Ambiguous wording may return `ai_used: true` when `allow_ai` is true.
+- Every response must save workflow trace and sponsorship evidence.
+- `is_legal_conclusion` must always be `false`.
 
 Response:
 

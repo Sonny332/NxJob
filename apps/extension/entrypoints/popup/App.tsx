@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { captureJobLead, checkHealth, type CaptureJobLeadResponse } from "../../src/lib/api-client";
+import {
+  analyzeSponsorship,
+  captureJobLead,
+  checkHealth,
+  type CaptureJobLeadResponse,
+  type SponsorshipAnalyzeResponse,
+  type SponsorshipStatus
+} from "../../src/lib/api-client";
 import { captureActiveTabContext, type PageContext } from "../../src/lib/page-capture";
 
 type ServiceState = "checking" | "online" | "offline";
@@ -16,6 +23,7 @@ export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
   const [pageContext, setPageContext] = useState<PageContext | null>(null);
   const [captureResult, setCaptureResult] = useState<CaptureJobLeadResponse | null>(null);
+  const [sponsorshipResult, setSponsorshipResult] = useState<SponsorshipAnalyzeResponse | null>(null);
   const [activeAction, setActiveAction] = useState<ActionName | null>(null);
   const [message, setMessage] = useState("Ready.");
 
@@ -35,6 +43,7 @@ export function App() {
   async function handleAction(action: ActionName) {
     setActiveAction(action);
     setCaptureResult(null);
+    setSponsorshipResult(null);
 
     try {
       const context = await captureActiveTabContext();
@@ -50,7 +59,15 @@ export function App() {
 
       const result = await captureJobLead(context);
       setCaptureResult(result);
-      setMessage(`${action} captured JobLead ${result.job_lead.id}. Workflow execution starts in the next milestone.`);
+
+      if (action === "Analyze Sponsorship") {
+        const sponsorship = await analyzeSponsorship(result.job_lead, context);
+        setSponsorshipResult(sponsorship);
+        setMessage(`Sponsorship analysis completed for ${result.job_lead.id}.`);
+        return;
+      }
+
+      setMessage(`${action} captured JobLead ${result.job_lead.id}. Workflow execution starts in a later milestone.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to capture page context.");
     } finally {
@@ -76,7 +93,7 @@ export function App() {
             disabled={activeAction !== null}
             onClick={() => handleAction(action)}
           >
-            {activeAction === action ? "Capturing..." : action}
+            {activeAction === action ? actionProgressLabel(action) : action}
           </button>
         ))}
       </section>
@@ -111,6 +128,44 @@ export function App() {
         </section>
       ) : null}
 
+      {sponsorshipResult ? (
+        <section className="sponsorship" aria-label="Sponsorship analysis result">
+          <div className="sponsorship-header">
+            <div>
+              <strong>Sponsorship</strong>
+              <span>{sponsorshipLabel(sponsorshipResult.sponsorship.status)}</span>
+            </div>
+            <span className={`status-pill status-pill-${sponsorshipResult.sponsorship.status}`}>
+              {Math.round(sponsorshipResult.sponsorship.confidence * 100)}%
+            </span>
+          </div>
+
+          <p>{sponsorshipResult.sponsorship.summary}</p>
+          <small>{sponsorshipResult.ai_used ? "AI fallback" : "Local rule"} - Not a legal conclusion</small>
+
+          <div className="evidence-list">
+            <strong>Evidence</strong>
+            {sponsorshipResult.evidence.map((item, index) => (
+              <article key={`${item.source}-${index}`}>
+                <span>{item.source}</span>
+                <p>{item.evidence_text}</p>
+              </article>
+            ))}
+          </div>
+
+          {sponsorshipResult.sponsorship.questions_to_confirm.length > 0 ? (
+            <div className="questions">
+              <strong>Confirm</strong>
+              <ul>
+                {sponsorshipResult.sponsorship.questions_to_confirm.map((question) => (
+                  <li key={question}>{question}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <p className="message">{message}</p>
     </main>
   );
@@ -123,5 +178,21 @@ async function refreshServiceState(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function actionProgressLabel(action: ActionName): string {
+  return action === "Analyze Sponsorship" ? "Analyzing..." : "Capturing...";
+}
+
+function sponsorshipLabel(status: SponsorshipStatus): string {
+  const labels: Record<SponsorshipStatus, string> = {
+    supports: "Supports",
+    does_not_support: "Does not support",
+    likely_supports: "Likely supports",
+    likely_not_supports: "Likely does not support",
+    needs_confirmation: "Needs confirmation",
+    unknown: "Unknown"
+  };
+  return labels[status];
 }
 

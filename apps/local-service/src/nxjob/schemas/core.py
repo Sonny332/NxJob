@@ -26,6 +26,14 @@ WorkflowName = Literal[
     "tailor_resume",
     "draft_form_answer_from_resume_bullets",
 ]
+SponsorshipStatus = Literal[
+    "supports",
+    "does_not_support",
+    "likely_supports",
+    "likely_not_supports",
+    "needs_confirmation",
+    "unknown",
+]
 
 
 class TraceResponse(BaseModel):
@@ -63,6 +71,38 @@ class JobLeadRecord(BaseModel):
 class JobLeadCaptureResponse(TraceResponse):
     job_lead: JobLeadRecord
     dedupe: dict[str, Any]
+
+
+class SponsorshipEvidenceItem(BaseModel):
+    source: str
+    evidence_text: str
+    evidence_url: str = ""
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class SponsorshipSummary(BaseModel):
+    status: SponsorshipStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    summary: str
+    risk_flags: list[str] = Field(default_factory=list)
+    questions_to_confirm: list[str] = Field(default_factory=list)
+    is_legal_conclusion: bool = False
+
+
+class SponsorshipAnalyzeRequest(BaseModel):
+    job_lead_id: str
+    jd_text: str = ""
+    company_name: str = ""
+    job_url: str = ""
+    application_form_text: str = ""
+    allow_public_lookup: bool = False
+    allow_ai: bool = True
+
+
+class SponsorshipAnalyzeResponse(TraceResponse):
+    sponsorship: SponsorshipSummary
+    evidence: list[SponsorshipEvidenceItem] = Field(default_factory=list)
+    ai_used: bool = False
 
 
 class ResumeVersionCreate(BaseModel):

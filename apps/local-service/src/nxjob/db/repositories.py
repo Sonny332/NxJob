@@ -13,6 +13,7 @@ from nxjob.schemas.core import (
     JobLeadRecord,
     ResumeVersionCreate,
     ResumeVersionRecord,
+    SponsorshipAnalyzeResponse,
     WorkflowTraceRecord,
 )
 
@@ -218,4 +219,34 @@ def create_workflow_trace(
         ),
     )
     return record
+
+
+def create_sponsorship_evidence(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+    trace_id: str,
+    analysis: SponsorshipAnalyzeResponse,
+) -> None:
+    for item in analysis.evidence:
+        connection.execute(
+            """
+            INSERT INTO sponsorship_evidence (
+              id, job_lead_id, created_at, trace_id, status, confidence, source,
+              evidence_text, evidence_url, is_legal_conclusion, prompt_log_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+            """,
+            (
+                new_id("spn"),
+                job_lead_id,
+                utc_now(),
+                trace_id,
+                analysis.sponsorship.status,
+                item.confidence,
+                item.source,
+                item.evidence_text,
+                item.evidence_url,
+                int(analysis.sponsorship.is_legal_conclusion),
+            ),
+        )
 
