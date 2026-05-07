@@ -15,4 +15,5 @@
 - Phase 1 uses REST only. Do not implement an MCP server in Phase 1.
 - User confirmation is mandatory for application submission and form filling.
 - Do not implement bulk scraping, automatic submission, CAPTCHA bypass, or no-confirmation mass applying.
+- Before writing or changing UI, read and follow `docs/design.md`.
 
