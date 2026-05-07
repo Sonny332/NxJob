@@ -22,7 +22,7 @@ def test_database_initializes_repeatably(tmp_path, monkeypatch) -> None:
             "SELECT value FROM schema_meta WHERE key = 'schema_version'"
         ).fetchone()
 
-    assert version["value"] == "2"
+    assert version["value"] == "3"
 
 
 def test_create_and_read_core_records(tmp_path, monkeypatch) -> None:

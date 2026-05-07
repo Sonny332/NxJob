@@ -104,6 +104,80 @@
         "ai_used": { "type": "boolean" }
       },
       "additionalProperties": false
+    },
+    "resumeTailorRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "master_resume_bullets"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "master_resume_id": { "type": "string" },
+        "master_resume_bullets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "format": { "const": "docx" },
+            "target_length": { "type": "string" },
+            "ats_friendly": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "success_reference_limit": { "type": "integer", "minimum": 0, "maximum": 10 }
+      },
+      "additionalProperties": false
+    },
+    "resumeTailorResponse": {
+      "type": "object",
+      "required": ["trace_id", "resume_version", "used_success_references", "warnings"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "resume_version": {
+          "type": "object",
+          "required": [
+            "id",
+            "job_lead_id",
+            "source_master_resume_id",
+            "created_at",
+            "format",
+            "file_path",
+            "selected_bullets",
+            "change_summary",
+            "ai_output",
+            "prompt_log_id",
+            "version_label",
+            "user_approved"
+          ],
+          "properties": {
+            "id": { "type": "string" },
+            "job_lead_id": { "type": "string" },
+            "source_master_resume_id": { "type": "string" },
+            "created_at": { "type": "string" },
+            "format": { "const": "docx" },
+            "file_path": { "type": "string" },
+            "selected_bullets": { "type": "array", "items": { "type": "string" } },
+            "change_summary": { "type": "string" },
+            "ai_output": { "type": "object" },
+            "prompt_log_id": { "type": "string" },
+            "version_label": { "type": "string" },
+            "user_approved": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "used_success_references": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
     }
   },
   "required": ["schemaVersion"]

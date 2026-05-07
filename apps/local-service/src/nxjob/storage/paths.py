@@ -18,6 +18,9 @@ def app_data_dir(app_name: str = "NxJob") -> Path:
 
 
 def generated_resume_dir() -> Path:
+    configured = os.environ.get("NXJOB_GENERATED_RESUME_DIR")
+    if configured:
+        return Path(configured)
     return app_data_dir() / "generated" / "resumes"
 
 

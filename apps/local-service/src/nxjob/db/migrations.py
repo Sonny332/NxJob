@@ -4,7 +4,7 @@ import sqlite3
 
 from nxjob.db.connection import db_session
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def initialize_database() -> None:
@@ -98,6 +98,43 @@ def apply_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_sponsorship_evidence_job_lead
           ON sponsorship_evidence (job_lead_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS prompt_logs (
+          id TEXT PRIMARY KEY,
+          trace_id TEXT NOT NULL,
+          workflow_name TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          input_summary TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          provider TEXT NOT NULL DEFAULT '',
+          token_usage_json TEXT NOT NULL DEFAULT '{}',
+          output_summary TEXT NOT NULL DEFAULT '',
+          raw_output_path TEXT NOT NULL DEFAULT '',
+          error TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (trace_id) REFERENCES workflow_traces (trace_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_prompt_logs_trace_id
+          ON prompt_logs (trace_id);
+
+        CREATE TABLE IF NOT EXISTS success_references (
+          id TEXT PRIMARY KEY,
+          application_id TEXT NOT NULL DEFAULT '',
+          job_lead_id TEXT NOT NULL,
+          resume_version_id TEXT NOT NULL,
+          outcome_type TEXT NOT NULL,
+          outcome_at TEXT NOT NULL,
+          source TEXT NOT NULL,
+          search_query TEXT NOT NULL DEFAULT '',
+          effective_keywords_json TEXT NOT NULL DEFAULT '[]',
+          effective_bullets_json TEXT NOT NULL DEFAULT '[]',
+          user_notes TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (job_lead_id) REFERENCES job_leads (id),
+          FOREIGN KEY (resume_version_id) REFERENCES resume_versions (id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_success_references_job_lead
+          ON success_references (job_lead_id, outcome_at);
         """
     )
     connection.execute(
