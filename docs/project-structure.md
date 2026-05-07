@@ -14,6 +14,7 @@ NxJob/
     data-model.md
     api-schema.md
     mvp-scope.md
+    design.md
     release-checklist.md
   apps/
     extension/
