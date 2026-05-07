@@ -17,6 +17,8 @@ Use `docs/install-windows.md` for the installer path.
 
 Current MVP installer note: the Windows local-service package uses a PowerShell installer script and requires Python 3.11+ on the user's machine.
 
+The package includes scripts to install, start in the background, check status, stop, and uninstall the local service.
+
 ## MVP Scope
 
 The MVP focuses on three browser actions:
@@ -53,3 +55,8 @@ Build MVP release artifacts:
 .\scripts\package\build-release.ps1 -Version 0.1.0
 ```
 
+Validate existing release artifacts:
+
+```powershell
+.\scripts\package\validate-release.ps1 -Version 0.1.0
+```

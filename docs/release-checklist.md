@@ -10,8 +10,11 @@ Before every release:
 - Windows local-service installer is generated.
 - Browser extension package is generated.
 - `release-manifest.json` is generated.
+- `release-test-record-<version>.md` is generated.
+- `scripts/package/validate-release.ps1` passes.
 - `docs/install-windows.md` is current.
 - `docs/release-test-record.md` is copied or filled for this release.
+- Local service install/start/status/stop/uninstall scripts are present in the package.
 - Installer test result is recorded.
 - Version differences from the previous release are recorded.
 - Desktop/local-service data source and browser-extension data source boundaries are clear.

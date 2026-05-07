@@ -1,6 +1,7 @@
 param(
   [string]$Version = "0.1.0",
-  [switch]$SkipChecks
+  [switch]$SkipChecks,
+  [switch]$SkipValidation
 )
 
 Set-StrictMode -Version Latest
@@ -46,18 +47,81 @@ try {
   & (Join-Path $root "scripts\package\build-local-service.ps1") -Version $Version -ArtifactsDir $artifactsDir
   & (Join-Path $root "scripts\package\build-extension.ps1") -Version $Version -ArtifactsDir $artifactsDir
 
+  $recordPath = Join-Path $artifactsDir "release-test-record-$Version.md"
+  $checksText = if ($SkipChecks) { "Skipped by -SkipChecks" } else { "Passed through build-release.ps1" }
+  @"
+# Release Test Record
+
+## Version
+
+- Version: $Version
+- Commit: $commit
+- Date: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+- Tester:
+
+## Artifacts
+
+- Local service package: nxjob-local-service-$Version.zip
+- Browser extension package: nxjob-extension-$Version.zip
+- Release manifest: release-manifest.json
+
+## Automated Checks
+
+- npm run shared:check: $checksText
+- npm run extension:typecheck: $checksText
+- python -m pytest apps/local-service/tests -q: $checksText
+- scripts/package/build-release.ps1: Passed
+- scripts/package/validate-release.ps1: Pending
+
+## Manual Smoke Test
+
+- Local service install script completed:
+- scripts/start-local-service.ps1 -Background starts the service:
+- scripts/check-health.ps1 returns ok:
+- scripts/status-local-service.ps1 reports healthy:
+- Browser extension loads:
+- Analyze Sponsorship button works:
+- Tailor Resume button creates a DOCX:
+- Fill Form Answer drafts and fills only after confirmation:
+- Outcome entry creates SuccessReference:
+- scripts/stop-local-service.ps1 stops the service:
+- scripts/uninstall-local-service.ps1 removes service files:
+
+## Data Boundary
+
+- Real master resume is local only:
+- private/ not included in Git diff:
+- Generated resumes not included in Git diff:
+- SQLite database not included in Git diff:
+- Release zips do not contain private data:
+
+## Version Differences
+
+- Added:
+- Changed:
+- Fixed:
+- Known limits:
+"@ | Set-Content -LiteralPath $recordPath -Encoding UTF8
+
   $manifest = [ordered]@{
     version = $Version
     commit = $commit
     created_at = (Get-Date).ToString("o")
     artifacts = @(
       "nxjob-local-service-$Version.zip",
-      "nxjob-extension-$Version.zip"
+      "nxjob-extension-$Version.zip",
+      "release-manifest.json",
+      "release-test-record-$Version.md"
     )
     checks = if ($SkipChecks) { "skipped" } else { "shared:check, extension:typecheck, pytest" }
     notes = "Windows-first MVP package. Private data is excluded."
   }
   $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $artifactsDir "release-manifest.json") -Encoding UTF8
+
+  if (-not $SkipValidation) {
+    & (Join-Path $root "scripts\package\validate-release.ps1") -Version $Version -ArtifactsDir $artifactsDir
+    (Get-Content -LiteralPath $recordPath -Raw).Replace("scripts/package/validate-release.ps1: Pending", "scripts/package/validate-release.ps1: Passed") | Set-Content -LiteralPath $recordPath -Encoding UTF8
+  }
   Write-Host "Release artifacts written to $artifactsDir"
 }
 finally {
