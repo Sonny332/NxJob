@@ -252,6 +252,75 @@
         "ai_used": { "type": "boolean" }
       },
       "additionalProperties": false
+    },
+    "outcomeSignalRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "outcome_type"],
+      "properties": {
+        "application_id": { "type": "string" },
+        "job_lead_id": { "type": "string" },
+        "outcome_type": {
+          "enum": [
+            "positive_reply",
+            "screen",
+            "interview",
+            "offer",
+            "rejection",
+            "no_response",
+            "closed"
+          ]
+        },
+        "outcome_at": { "type": "string" },
+        "source": {
+          "enum": ["email", "manual", "recruiter_message", "calendar", "other"]
+        },
+        "evidence_text": { "type": "string" },
+        "evidence_url": { "type": "string" },
+        "user_notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "successReference": {
+      "type": "object",
+      "required": [
+        "id",
+        "application_id",
+        "job_lead_id",
+        "resume_version_id",
+        "outcome_type",
+        "outcome_at",
+        "source",
+        "search_query",
+        "effective_keywords",
+        "effective_bullets",
+        "user_notes"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "job_lead_id": { "type": "string" },
+        "resume_version_id": { "type": "string" },
+        "outcome_type": { "type": "string" },
+        "outcome_at": { "type": "string" },
+        "source": { "type": "string" },
+        "search_query": { "type": "string" },
+        "effective_keywords": { "type": "array", "items": { "type": "string" } },
+        "effective_bullets": { "type": "array", "items": { "type": "string" } },
+        "user_notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "successReferenceListResponse": {
+      "type": "object",
+      "required": ["trace_id", "success_references"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "success_references": {
+          "type": "array",
+          "items": { "$ref": "#/properties/successReference" }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": ["schemaVersion"]

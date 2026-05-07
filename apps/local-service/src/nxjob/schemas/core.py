@@ -34,6 +34,16 @@ SponsorshipStatus = Literal[
     "needs_confirmation",
     "unknown",
 ]
+OutcomeType = Literal[
+    "positive_reply",
+    "screen",
+    "interview",
+    "offer",
+    "rejection",
+    "no_response",
+    "closed",
+]
+OutcomeSource = Literal["email", "manual", "recruiter_message", "calendar", "other"]
 
 
 class TraceResponse(BaseModel):
@@ -200,6 +210,58 @@ class ApplicationResponse(TraceResponse):
     application: ApplicationRecord
 
 
+class OutcomeSignalCreate(BaseModel):
+    application_id: str = ""
+    job_lead_id: str
+    outcome_type: OutcomeType
+    outcome_at: str = ""
+    source: OutcomeSource = "manual"
+    evidence_text: str = ""
+    evidence_url: str = ""
+    user_notes: str = ""
+
+
+class OutcomeSignalRecord(OutcomeSignalCreate):
+    id: str
+    created_at: str
+
+
+class SuccessReferenceCreate(BaseModel):
+    application_id: str = ""
+    job_lead_id: str
+    resume_version_id: str
+    outcome_type: str
+    outcome_at: str
+    source: str
+    search_query: str = ""
+    effective_keywords: list[str] = Field(default_factory=list)
+    effective_bullets: list[str] = Field(default_factory=list)
+    user_notes: str = ""
+
+
+class SuccessReferenceRecord(SuccessReferenceCreate):
+    id: str
+
+
+class SuccessReferenceDetail(BaseModel):
+    success_reference: SuccessReferenceRecord
+    job_lead: JobLeadRecord
+    resume_version: ResumeVersionRecord
+    application: ApplicationRecord | None = None
+
+
+class OutcomeSignalResponse(TraceResponse):
+    outcome: OutcomeSignalRecord
+    success_reference: dict[str, Any]
+
+
+class SuccessReferenceListResponse(TraceResponse):
+    success_references: list[SuccessReferenceRecord]
+
+
+class SuccessReferenceDetailResponse(TraceResponse):
+    detail: SuccessReferenceDetail
+
 class FieldContext(BaseModel):
     label: str = ""
     placeholder: str = ""
@@ -259,18 +321,3 @@ class PromptLogCreate(BaseModel):
 class PromptLogRecord(PromptLogCreate):
     id: str
     created_at: str
-
-
-class SuccessReferenceRecord(BaseModel):
-    id: str
-    application_id: str
-    job_lead_id: str
-    resume_version_id: str
-    outcome_type: str
-    outcome_at: str
-    source: str
-    search_query: str
-    effective_keywords: list[str] = Field(default_factory=list)
-    effective_bullets: list[str] = Field(default_factory=list)
-    user_notes: str = ""
-

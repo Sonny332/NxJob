@@ -12,11 +12,14 @@ from nxjob.schemas.core import (
     FormAnswerDraftRecord,
     JobLeadCapture,
     JobLeadRecord,
+    OutcomeSignalCreate,
+    OutcomeSignalRecord,
     PromptLogCreate,
     PromptLogRecord,
     ResumeVersionCreate,
     ResumeVersionRecord,
     SponsorshipAnalyzeResponse,
+    SuccessReferenceCreate,
     SuccessReferenceRecord,
     WorkflowTraceRecord,
 )
@@ -150,9 +153,32 @@ def get_resume_version(connection: sqlite3.Connection, record_id: str) -> Resume
     return row_to_resume_version(row)
 
 
+def get_latest_resume_version_for_job(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+) -> ResumeVersionRecord | None:
+    row = connection.execute(
+        """
+        SELECT * FROM resume_versions
+        WHERE job_lead_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (job_lead_id,),
+    ).fetchone()
+    return row_to_resume_version(row) if row else None
+
+
 def update_job_lead_status(connection: sqlite3.Connection, record_id: str, status: str) -> None:
     connection.execute(
         "UPDATE job_leads SET status = ? WHERE id = ?",
+        (status, record_id),
+    )
+
+
+def update_application_status(connection: sqlite3.Connection, record_id: str, status: str) -> None:
+    connection.execute(
+        "UPDATE applications SET status = ? WHERE id = ?",
         (status, record_id),
     )
 
@@ -298,6 +324,54 @@ def row_to_success_reference(row: sqlite3.Row) -> SuccessReferenceRecord:
     )
 
 
+def create_success_reference(
+    connection: sqlite3.Connection,
+    payload: SuccessReferenceCreate,
+) -> SuccessReferenceRecord:
+    record_id = new_id("sref")
+    connection.execute(
+        """
+        INSERT INTO success_references (
+          id, application_id, job_lead_id, resume_version_id, outcome_type, outcome_at,
+          source, search_query, effective_keywords_json, effective_bullets_json, user_notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record_id,
+            payload.application_id,
+            payload.job_lead_id,
+            payload.resume_version_id,
+            payload.outcome_type,
+            payload.outcome_at,
+            payload.source,
+            payload.search_query,
+            json.dumps(payload.effective_keywords, ensure_ascii=False),
+            json.dumps(payload.effective_bullets, ensure_ascii=False),
+            payload.user_notes,
+        ),
+    )
+    return get_success_reference(connection, record_id)
+
+
+def get_success_reference(connection: sqlite3.Connection, record_id: str) -> SuccessReferenceRecord:
+    row = connection.execute("SELECT * FROM success_references WHERE id = ?", (record_id,)).fetchone()
+    if row is None:
+        raise KeyError(record_id)
+    return row_to_success_reference(row)
+
+
+def list_success_references_for_tracker(
+    connection: sqlite3.Connection,
+    limit: int = 50,
+) -> list[SuccessReferenceRecord]:
+    rows = connection.execute(
+        "SELECT * FROM success_references ORDER BY outcome_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [row_to_success_reference(row) for row in rows]
+
+
 def list_success_references(
     connection: sqlite3.Connection,
     keywords: list[str],
@@ -345,6 +419,58 @@ def create_form_answer_draft(
         ),
     )
     return payload
+
+
+def row_to_outcome_signal(row: sqlite3.Row) -> OutcomeSignalRecord:
+    return OutcomeSignalRecord(
+        id=row["id"],
+        application_id=row["application_id"],
+        job_lead_id=row["job_lead_id"],
+        created_at=row["created_at"],
+        outcome_type=row["outcome_type"],
+        outcome_at=row["outcome_at"],
+        source=row["source"],
+        evidence_text=row["evidence_text"],
+        evidence_url=row["evidence_url"],
+        user_notes=row["user_notes"],
+    )
+
+
+def create_outcome_signal(
+    connection: sqlite3.Connection,
+    payload: OutcomeSignalCreate,
+) -> OutcomeSignalRecord:
+    record_id = new_id("out")
+    outcome_at = payload.outcome_at or utc_now()
+    connection.execute(
+        """
+        INSERT INTO outcome_signals (
+          id, application_id, job_lead_id, created_at, outcome_type, outcome_at,
+          source, evidence_text, evidence_url, user_notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record_id,
+            payload.application_id,
+            payload.job_lead_id,
+            utc_now(),
+            payload.outcome_type,
+            outcome_at,
+            payload.source,
+            payload.evidence_text,
+            payload.evidence_url,
+            payload.user_notes,
+        ),
+    )
+    return get_outcome_signal(connection, record_id)
+
+
+def get_outcome_signal(connection: sqlite3.Connection, record_id: str) -> OutcomeSignalRecord:
+    row = connection.execute("SELECT * FROM outcome_signals WHERE id = ?", (record_id,)).fetchone()
+    if row is None:
+        raise KeyError(record_id)
+    return row_to_outcome_signal(row)
 
 
 def create_sponsorship_evidence(
