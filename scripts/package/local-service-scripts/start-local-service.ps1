@@ -57,6 +57,14 @@ function Get-LogTail {
   return ""
 }
 
+function ConvertTo-ProcessArgument {
+  param([string]$Value)
+  if ($Value -notmatch '[\s"]') {
+    return $Value
+  }
+  return '"' + $Value.Replace('"', '\"') + '"'
+}
+
 if (-not $InstallRoot) {
   if (-not $env:LOCALAPPDATA) {
     throw "LOCALAPPDATA is not set. Pass -InstallRoot explicitly."
@@ -96,7 +104,8 @@ if ($Background) {
   New-Item -ItemType Directory -Force -Path $logDir | Out-Null
   $stdout = Join-Path $logDir "service.out.log"
   $stderr = Join-Path $logDir "service.err.log"
-  $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $InstallRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument $_ }) -join " "
+  $process = Start-Process -FilePath $python -ArgumentList $argumentLine -WorkingDirectory $InstallRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
   Set-Content -LiteralPath (Join-Path $InstallRoot "nxjob-local-service.pid") -Value $process.Id -Encoding UTF8
   try {
     Wait-ForHealth -Uri $healthUri
