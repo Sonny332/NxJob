@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from math import ceil
+from typing import Any
 
+from pydantic import ValidationError
+
+from nxjob.ai.openai_compatible import AiProviderError, request_json_object
 from nxjob.schemas.core import (
     JobLeadRecord,
     MasterResumeEducation,
     MasterResumeBullet,
+    MasterResumeExperience,
     SuccessReferenceRecord,
     TailoredResumeContent,
 )
+from nxjob.settings.private_config import AiProviderConfig
 
 WORKFLOW_NAME = "tailor_resume"
 
@@ -106,6 +113,40 @@ def tailor_resume_content(
         quality_checks=quality_checks,
         warnings=warnings,
     )
+
+
+def tailor_resume_content_with_ai(
+    job_lead: JobLeadRecord,
+    bullets: list[MasterResumeBullet],
+    success_references: list[SuccessReferenceRecord],
+    ai_config: AiProviderConfig,
+    candidate_name: str = "Candidate",
+    contact_line: str = "",
+    education: list[MasterResumeEducation] | None = None,
+    experience: list[MasterResumeExperience] | None = None,
+) -> TailorDraft:
+    local_baseline = tailor_resume_content(
+        job_lead,
+        bullets,
+        success_references,
+        candidate_name=candidate_name,
+        contact_line=contact_line,
+        education=education,
+    )
+    result = request_json_object(
+        ai_config,
+        _ai_messages(
+            job_lead,
+            bullets,
+            success_references,
+            candidate_name=candidate_name,
+            contact_line=contact_line,
+            education=education or [],
+            experience=experience or [],
+            local_baseline=local_baseline,
+        ),
+    )
+    return _draft_from_ai_payload(result.data, local_baseline, result.token_usage)
 
 
 def extract_keywords(text: str, limit: int = 24) -> list[str]:
@@ -267,3 +308,153 @@ def render_tailored_resume_markdown(content: TailoredResumeContent) -> str:
         lines.extend(content.education)
 
     return "\n".join(lines).strip() + "\n"
+
+
+def _ai_messages(
+    job_lead: JobLeadRecord,
+    bullets: list[MasterResumeBullet],
+    success_references: list[SuccessReferenceRecord],
+    candidate_name: str,
+    contact_line: str,
+    education: list[MasterResumeEducation],
+    experience: list[MasterResumeExperience],
+    local_baseline: TailorDraft,
+) -> list[dict[str, str]]:
+    system = (
+        "You are NxJob Resume Tailor. Return only a JSON object. "
+        "Create a truthful, ATS-friendly, one-page English resume draft from the supplied JD "
+        "and master resume evidence. Do not invent unsupported facts. Do not remove known "
+        "experience in a way that creates timeline gaps. Education must include years when "
+        "provided. If exact years of experience cannot be calculated reliably, do not state a "
+        "numeric year count. Keep bullets compact for a one-page Arial DOCX renderer."
+    )
+    user = {
+        "output_schema": {
+            "content": {
+                "candidate_name": "string",
+                "contact_line": "string",
+                "headline": "string",
+                "summary": ["string"],
+                "skills": ["string"],
+                "experience_bullets": ["string"],
+                "education": ["string"],
+            },
+            "selected_bullet_ids": ["string"],
+            "change_summary": "string",
+            "layout_budget": {
+                "name_lines": 1,
+                "heading_lines": "integer <= 5",
+                "body_lines": "integer <= 55",
+                "max_heading_lines": 5,
+                "max_body_lines": 55,
+                "normal_line_chars": 118,
+                "bullet_line_chars": 112,
+            },
+            "quality_checks": {
+                "one_page_budget_ok": "boolean",
+                "education_years_present": "boolean",
+                "summary_avoids_fixed_year_count": "boolean",
+                "truthful_to_master_resume": "boolean",
+            },
+            "warnings": ["string"],
+        },
+        "rendering_rules": {
+            "font": "Arial",
+            "colors": "black only",
+            "page": "single column, one page target",
+            "body_line_budget": 55,
+            "normal_line_chars": "110-118",
+            "bullet_line_chars": "105-112",
+        },
+        "job": {
+            "company_name": job_lead.company_name,
+            "job_title": job_lead.job_title,
+            "location": job_lead.location,
+            "page_title": job_lead.page_title,
+            "jd_text": job_lead.jd_text[:12000],
+        },
+        "candidate": {
+            "candidate_name": candidate_name,
+            "contact_line": contact_line,
+            "education": [item.model_dump() for item in education],
+            "experience": [item.model_dump() for item in experience],
+            "master_bullets": [bullet.model_dump() for bullet in bullets],
+        },
+        "success_references": [
+            {
+                "id": reference.id,
+                "effective_keywords": reference.effective_keywords,
+                "effective_bullets": reference.effective_bullets,
+            }
+            for reference in success_references
+        ],
+        "local_baseline": {
+            "selected_bullet_ids": local_baseline.selected_bullet_ids,
+            "layout_budget": local_baseline.layout_budget,
+            "quality_checks": local_baseline.quality_checks,
+        },
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _compact_json(user)},
+    ]
+
+
+def _draft_from_ai_payload(
+    payload: dict[str, Any],
+    local_baseline: TailorDraft,
+    token_usage: dict[str, Any],
+) -> TailorDraft:
+    try:
+        content = TailoredResumeContent.model_validate(payload.get("content", {}))
+    except ValidationError as exc:
+        raise AiProviderError("invalid_response", "AI resume content did not match the expected schema.") from exc
+
+    markdown = render_tailored_resume_markdown(content)
+    layout_budget = estimate_layout_budget(content)
+    selected_bullet_ids = [
+        str(value)
+        for value in payload.get("selected_bullet_ids", [])
+        if isinstance(value, str) and value.strip()
+    ]
+    if not selected_bullet_ids:
+        selected_bullet_ids = local_baseline.selected_bullet_ids
+
+    warnings = [
+        str(value)
+        for value in payload.get("warnings", [])
+        if isinstance(value, str) and value.strip()
+    ]
+    quality_checks = {
+        "one_page_budget_ok": layout_budget["body_lines"] <= 55 and layout_budget["heading_lines"] <= 5,
+        "education_years_present": bool(content.education)
+        and all(_contains_year_range(line) for line in content.education),
+        "summary_avoids_fixed_year_count": not any(
+            re.search(r"\b\d+\+?\s+years?\b", line, re.I) for line in content.summary
+        ),
+        "truthful_to_master_resume": bool(payload.get("quality_checks", {}).get("truthful_to_master_resume", True))
+        if isinstance(payload.get("quality_checks"), dict)
+        else True,
+        "renderer_uses_black_arial_template": True,
+        "markdown_generated_from_same_content": True,
+    }
+    if not quality_checks["one_page_budget_ok"]:
+        warnings.append("AI output is above the estimated one-page budget; review DOCX before submitting.")
+    if not quality_checks["summary_avoids_fixed_year_count"]:
+        warnings.append("AI output includes a numeric experience year count; verify the calculation.")
+
+    return TailorDraft(
+        content=content.model_copy(update={"markdown": markdown}),
+        selected_bullet_ids=selected_bullet_ids,
+        change_summary=str(payload.get("change_summary", "")).strip()
+        or "Generated structured resume content with AI provider.",
+        token_usage=token_usage,
+        markdown=markdown,
+        layout_budget=layout_budget,
+        quality_checks=quality_checks,
+        warnings=warnings,
+    )
+
+
+def _compact_json(data: dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))

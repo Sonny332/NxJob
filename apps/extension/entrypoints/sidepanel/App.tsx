@@ -611,7 +611,10 @@ function ResumeResult(props: {
         <span>Filename</span>
         <p>{result.filename_base || "Not available"}</p>
       </div>
-      <small>{result.cache.hit ? "Cache hit" : "Fresh result"} · {result.resume_version.change_summary}</small>
+      <small>
+        {result.ai_used ? `AI: ${result.ai_provider_name || "provider"}` : "Local draft"} ·{" "}
+        {result.cache.hit ? "Cache hit" : "Fresh result"} · {result.resume_version.change_summary}
+      </small>
       <div className="compact-list">
         <span>Selected bullets</span>
         <p>{result.resume_version.selected_bullets.join(", ") || "None"}</p>

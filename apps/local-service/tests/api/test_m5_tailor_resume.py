@@ -7,8 +7,11 @@ from pathlib import Path
 from docx import Document
 from fastapi.testclient import TestClient
 
+from nxjob.ai.openai_compatible import AiProviderError
 from nxjob.db.repositories import new_id, utc_now
 from nxjob.main import create_app
+from nxjob.schemas.core import TailoredResumeContent
+from nxjob.workflows.resume_tailor import TailorDraft
 
 
 def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) -> None:
@@ -81,6 +84,129 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert prompt_row[0] == "local_stub"
     assert json.loads(prompt_row[1])["input_chars"] > 0
     assert resume_row[0] == "tailored"
+
+
+def test_tailor_resume_uses_configured_ai_provider_without_logging_private_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
+
+    def fake_ai_tailor(*args, **kwargs):
+        ai_config = args[3]
+        assert ai_config.api_key == "sk-private-test-key"
+        content = TailoredResumeContent(
+            candidate_name="Candidate",
+            contact_line="candidate@example.com",
+            headline="Backend Engineer alignment",
+            summary=["Technical professional focused on Python API workflows."],
+            skills=["Python", "FastAPI", "SQLite"],
+            experience_bullets=["Built Python FastAPI services with SQLite workflow automation."],
+            education=["Northeastern University | M.S. | Boston, MA | 2018 - 2020 | GPA: 3.62 / 4.0"],
+        )
+        return TailorDraft(
+            content=content,
+            selected_bullet_ids=["bullet_python_api"],
+            change_summary="Generated structured resume content with AI provider.",
+            token_usage={"prompt_tokens": 100, "completion_tokens": 80, "total_tokens": 180},
+            markdown="# Candidate\n",
+            layout_budget={"body_lines": 8, "heading_lines": 4, "max_body_lines": 55},
+            quality_checks={"one_page_budget_ok": True},
+            warnings=[],
+        )
+
+    monkeypatch.setattr("nxjob.api.resumes.tailor_resume_content_with_ai", fake_ai_tailor)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(
+            client,
+            "Private JD text for Backend Engineer role using Python APIs.",
+        )
+        response = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_python_api",
+                        "text": "Private master resume bullet about Python FastAPI services.",
+                        "tags": ["Python", "FastAPI"],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ai_used"] is True
+    assert body["ai_provider_name"] == "openai_compatible"
+
+    with sqlite3.connect(db_path) as connection:
+        prompt_row = connection.execute(
+            """
+            SELECT provider, model, input_summary, output_summary, token_usage_json, error
+            FROM prompt_logs
+            WHERE trace_id = ?
+            """,
+            (body["trace_id"],),
+        ).fetchone()
+
+    serialized_prompt_row = " ".join(str(value) for value in prompt_row)
+    assert prompt_row[0] == "openai_compatible"
+    assert prompt_row[1] == "test-tailor-model"
+    assert json.loads(prompt_row[4])["total_tokens"] == 180
+    assert "sk-private-test-key" not in serialized_prompt_row
+    assert "Private JD text" not in serialized_prompt_row
+    assert "Private master resume bullet" not in serialized_prompt_row
+
+
+def test_tailor_resume_ai_provider_failure_is_sanitized(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
+
+    def fake_ai_tailor(*args, **kwargs):
+        raise AiProviderError("authentication_failed", "AI provider authentication failed.", 401)
+
+    monkeypatch.setattr("nxjob.api.resumes.tailor_resume_content_with_ai", fake_ai_tailor)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Private JD text for Python automation role.")
+        response = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_api",
+                        "text": "Private master resume bullet about API automation.",
+                        "tags": ["Python", "API"],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "AI provider authentication failed."
+    assert "sk-private-test-key" not in response.text
+
+    with sqlite3.connect(db_path) as connection:
+        prompt_row = connection.execute(
+            "SELECT input_summary, output_summary, error FROM prompt_logs",
+        ).fetchone()
+        trace_row = connection.execute("SELECT status FROM workflow_traces").fetchone()
+
+    serialized_prompt_row = " ".join(str(value) for value in prompt_row)
+    assert prompt_row[2] == "authentication_failed"
+    assert trace_row[0] == "failed"
+    assert "sk-private-test-key" not in serialized_prompt_row
+    assert "Private JD text" not in serialized_prompt_row
 
 
 def test_tailor_resume_reuses_cache_and_can_force_refresh(tmp_path, monkeypatch) -> None:

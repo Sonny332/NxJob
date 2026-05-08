@@ -207,6 +207,8 @@ class ResumeTailorResponse(TraceResponse):
     resume_version: ResumeVersionRecord
     used_success_references: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    ai_used: bool = False
+    ai_provider_name: str = ""
     docx_path: str = ""
     markdown_path: str = ""
     filename_base: str = ""
