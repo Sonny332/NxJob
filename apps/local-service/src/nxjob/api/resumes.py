@@ -33,7 +33,7 @@ from nxjob.schemas.core import (
     WorkflowCacheInfo,
     WorkflowTraceRecord,
 )
-from nxjob.storage.paths import generated_resume_dir
+from nxjob.settings.private_config import configured_resume_output_dir
 from nxjob.workflows.resume_tailor import WORKFLOW_NAME, extract_keywords, tailor_resume_content
 
 router = APIRouter(prefix="/api/v1/resumes", tags=["resumes"])
@@ -53,9 +53,15 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
     master_resume_bullets = master_resume.bullets if master_resume else payload.master_resume_bullets
     candidate_name = payload.candidate_name or (master_resume.candidate_name if master_resume else "")
     contact_line = payload.contact_line or (master_resume.contact_line if master_resume else "")
+    education = master_resume.education if master_resume else []
 
     if not master_resume_bullets:
         raise HTTPException(status_code=422, detail="master_resume_bullets is required")
+
+    try:
+        output_dir = _resolve_output_dir(payload.output_directory_override)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     with db_session() as connection:
         try:
@@ -70,7 +76,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
         )
         cache_key = workflow_cache_key(
             WORKFLOW_NAME,
-            "v1",
+            "v2",
             {
                 "jd_hash": job_lead.jd_hash,
                 "master_resume": stable_hash(
@@ -79,18 +85,23 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                         "candidate_name": candidate_name,
                         "contact_line": contact_line,
                         "bullets": [bullet.model_dump() for bullet in master_resume_bullets],
+                        "education": [item.model_dump() for item in education],
                     }
                 ),
                 "constraints": payload.constraints.model_dump(),
+                "output_directory": str(output_dir),
+                "filename_policy": "date_company_job_resume",
                 "success_references": [reference.id for reference in success_references],
             },
         )
         if not payload.force_refresh:
             cached = find_cached_workflow_result(connection, WORKFLOW_NAME, cache_key)
             if cached is not None:
-                return ResumeTailorResponse.model_validate(cached.response).model_copy(
-                    update={"cache": WorkflowCacheInfo(hit=True, cache_key=cache_key)}
-                )
+                cached_response = ResumeTailorResponse.model_validate(cached.response)
+                if _cached_files_exist(cached_response):
+                    return cached_response.model_copy(
+                        update={"cache": WorkflowCacheInfo(hit=True, cache_key=cache_key)}
+                    )
 
         trace_id = new_trace_id()
         draft = tailor_resume_content(
@@ -99,9 +110,11 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             success_references,
             candidate_name=candidate_name,
             contact_line=contact_line,
+            education=education,
         )
-        output_path = _resume_output_path(payload.job_lead_id, trace_id)
+        filename_base, output_path, markdown_path = _resume_output_paths(job_lead, output_dir)
         render_resume_docx(draft.content, output_path)
+        markdown_path.write_text(draft.markdown, encoding="utf-8")
         validation = validate_docx_basic(output_path)
 
         create_workflow_trace(
@@ -140,7 +153,13 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                 file_path=str(output_path),
                 selected_bullets=draft.selected_bullet_ids,
                 change_summary=draft.change_summary,
-                ai_output=draft.content.model_dump(),
+                ai_output={
+                    "content": draft.content.model_dump(),
+                    "markdown_path": str(markdown_path),
+                    "layout_budget": draft.layout_budget,
+                    "quality_checks": draft.quality_checks,
+                    "warnings": draft.warnings,
+                },
                 prompt_log_id=prompt_log.id,
                 version_label=trace_id,
                 user_approved=False,
@@ -148,11 +167,11 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
         )
         update_job_lead_status(connection, payload.job_lead_id, "tailored")
 
-    warnings = validation.warnings
+    warnings = [*draft.warnings, *validation.warnings]
     if validation.backend == "basic-path-check":
         warnings = [
             *warnings,
-            "DOCX layout validation is limited to file existence in M5.",
+            "DOCX layout validation is limited to file existence and budget checks in M11.",
         ]
 
     response = ResumeTailorResponse(
@@ -160,6 +179,11 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
         resume_version=resume_version,
         used_success_references=[reference.id for reference in success_references],
         warnings=warnings,
+        docx_path=str(output_path),
+        markdown_path=str(markdown_path),
+        filename_base=filename_base,
+        layout_budget=draft.layout_budget,
+        quality_checks=draft.quality_checks,
         cache=WorkflowCacheInfo(hit=False, cache_key=cache_key),
     )
     with db_session() as connection:
@@ -191,6 +215,49 @@ def create_tailor_feedback(payload: ResumeTailorFeedbackCreate) -> ResumeTailorF
     return ResumeTailorFeedbackResponse(trace_id=trace_id, feedback=feedback)
 
 
-def _resume_output_path(job_lead_id: str, trace_id: str) -> Path:
-    safe_job_id = re.sub(r"[^A-Za-z0-9_-]+", "_", job_lead_id)
-    return generated_resume_dir() / f"{safe_job_id}_{trace_id}.docx"
+def _resolve_output_dir(override: str = "") -> Path:
+    output_dir = Path(override).expanduser() if override.strip() else configured_resume_output_dir()
+    if output_dir is None:
+        raise ValueError("Resume output folder is not configured.")
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        probe = output_dir / ".nxjob-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise ValueError(f"Resume output folder is not writable: {output_dir}") from exc
+    return output_dir
+
+
+def _resume_output_paths(job_lead, output_dir: Path) -> tuple[str, Path, Path]:
+    date_prefix = job_lead.captured_at[:10] if job_lead.captured_at else utc_now()[:10]
+    company = job_lead.company_name or _company_from_title(job_lead.page_title) or "Company"
+    title = job_lead.job_title or job_lead.page_title or "Role"
+    filename_base = _safe_filename(f"{date_prefix}_{company}_{title}_resume")
+    candidate = filename_base
+    index = 2
+    while (output_dir / f"{candidate}.docx").exists() or (output_dir / f"{candidate}.md").exists():
+        candidate = f"{filename_base}_v{index}"
+        index += 1
+    return candidate, output_dir / f"{candidate}.docx", output_dir / f"{candidate}.md"
+
+
+def _safe_filename(value: str, max_length: int = 120) -> str:
+    normalized = re.sub(r"[\\/:*?\"<>|]+", " ", value)
+    normalized = re.sub(r"[^A-Za-z0-9._ -]+", " ", normalized)
+    normalized = re.sub(r"\s+", "_", normalized).strip("._- ")
+    return (normalized or "tailored_resume")[:max_length].rstrip("._- ")
+
+
+def _company_from_title(page_title: str) -> str:
+    if " at " in page_title:
+        return page_title.rsplit(" at ", 1)[-1]
+    if " - " in page_title:
+        return page_title.rsplit(" - ", 1)[-1]
+    return ""
+
+
+def _cached_files_exist(response: ResumeTailorResponse) -> bool:
+    return bool(response.docx_path and response.markdown_path) and Path(response.docx_path).exists() and Path(
+        response.markdown_path
+    ).exists()

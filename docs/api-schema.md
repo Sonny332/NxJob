@@ -182,9 +182,9 @@ Response:
 
 Future MCP tool name: `tailor_resume`.
 
-Purpose: generate a tailored DOCX resume from a JD, master resume bullets, and success references.
+Purpose: generate a tailored DOCX resume and matching Markdown file from a JD, master resume bullets, and success references.
 
-M5 implementation note: Phase 1 uses a deterministic local tailoring stub instead of a real AI provider. The endpoint still follows the future MCP tool shape, stores a `PromptLog`, and records token-like character usage so the provider can be swapped later without changing the caller contract. The workflow passes only the current JD keywords, supplied master bullets, and the limited success reference summaries; it does not send the full application history.
+M11 implementation note: Phase 1 still supports deterministic local tailoring while preserving the future AI workflow shape. The workflow returns structured content, selected bullet ids, layout budget, quality checks, DOCX path, and Markdown path. It does not log full Master Resume, full JD, API key, or full prompt text.
 
 Request:
 
@@ -204,20 +204,23 @@ Request:
     "target_length": "one_page_preferred",
     "ats_friendly": true
   },
-  "success_reference_limit": 3
+  "success_reference_limit": 3,
+  "output_directory_override": "",
+  "force_refresh": false
 }
 ```
 
 Rules:
 
-- `master_resume_bullets` is required.
+- `master_resume_bullets` is required unless a private Master Resume JSON is configured.
 - If `master_resume_bullets` is omitted, the local service reads the private JSON file configured by `NXJOB_MASTER_RESUME_PATH`.
 - MVP only supports `constraints.format: "docx"`.
-- The generated DOCX is written by the local service under the generated resume storage directory.
+- The generated DOCX and Markdown are written by the local service under the configured resume output folder.
+- The default filename policy is `YYYY-MM-DD_<company>_<job-title>_resume`, with safe path characters and `_v2` suffixes for collisions.
 - Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
 - `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
 - Success references are retrieved by keyword overlap and returned as ids in `used_success_references`.
-- Strict PDF/page-count validation is not part of M5; M5 uses basic DOCX existence validation and returns a warning.
+- Strict PDF/page-count validation is not part of M11; M11 uses budget checks plus basic DOCX existence validation and returns warnings.
 
 Response:
 
@@ -232,9 +235,57 @@ Response:
     "change_summary": "string"
   },
   "used_success_references": ["string"],
-  "warnings": ["string"]
+  "warnings": ["string"],
+  "docx_path": "string",
+  "markdown_path": "string",
+  "filename_base": "string",
+  "layout_budget": {
+    "name_lines": 1,
+    "heading_lines": 4,
+    "body_lines": 32,
+    "max_heading_lines": 5,
+    "max_body_lines": 55
+  },
+  "quality_checks": {
+    "one_page_budget_ok": true,
+    "education_years_present": true,
+    "summary_avoids_fixed_year_count": true
+  }
 }
 ```
+
+### GET /api/v1/config/status
+
+Purpose: report local private setup state used by the plugin setup panel.
+
+Response includes:
+
+```json
+{
+  "master_resume_configured": true,
+  "ai_provider_configured": true,
+  "resume_output_dir_configured": true,
+  "resume_output_dir": "D:\\Resume\\NxJob Generated",
+  "warnings": []
+}
+```
+
+### POST /api/v1/config/resume-output-directory
+
+Purpose: save the private local folder used for generated resumes.
+
+Request:
+
+```json
+{
+  "path": "D:\\Resume\\NxJob Generated"
+}
+```
+
+Rules:
+
+- The local service validates that the folder can be created and written.
+- The configured path is stored in private local config and must not be committed, logged, or packaged.
 
 ### POST /api/v1/forms/draft-answer
 

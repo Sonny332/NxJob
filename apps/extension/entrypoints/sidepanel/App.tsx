@@ -10,6 +10,7 @@ import {
   getWorkflowResults,
   saveAiProvider,
   saveMasterResume,
+  saveResumeOutputDirectory,
   submitResumeFeedback,
   type ConfigStatusResponse,
   type FormAnswerDraftResponse,
@@ -57,6 +58,7 @@ export function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiModel, setApiModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [resumeOutputDir, setResumeOutputDir] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -76,8 +78,11 @@ export function App() {
   }, [workspace]);
 
   useEffect(() => {
-    if (config && (!config.master_resume_configured || !config.ai_provider_configured)) {
+    if (config && (!config.master_resume_configured || !config.ai_provider_configured || !config.resume_output_dir_configured)) {
       setSettingsOpen(true);
+    }
+    if (config?.resume_output_dir) {
+      setResumeOutputDir(config.resume_output_dir);
     }
   }, [config]);
 
@@ -154,6 +159,11 @@ export function App() {
     if (!config?.master_resume_configured) {
       setSettingsOpen(true);
       setMessage("Configure Master Resume before tailoring.");
+      return;
+    }
+    if (!config?.resume_output_dir_configured) {
+      setSettingsOpen(true);
+      setMessage("Configure Resume Output Folder before tailoring.");
       return;
     }
 
@@ -241,6 +251,16 @@ export function App() {
       setMessage("AI provider config cleared.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to clear AI provider.");
+    }
+  }
+
+  async function saveOutputFolder() {
+    try {
+      const status = await saveResumeOutputDirectory(resumeOutputDir);
+      setConfig(status);
+      setMessage("Resume output folder saved to local private config.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save resume output folder.");
     }
   }
 
@@ -354,6 +374,9 @@ export function App() {
           <span className={config?.ai_provider_configured ? "setup-ok" : "setup-needed"}>
             AI Key {config?.ai_provider_configured ? "ready" : "missing"}
           </span>
+          <span className={config?.resume_output_dir_configured ? "setup-ok" : "setup-needed"}>
+            Output Folder {config?.resume_output_dir_configured ? "ready" : "missing"}
+          </span>
         </div>
 
         {settingsOpen ? (
@@ -379,9 +402,20 @@ export function App() {
               <span>API Key</span>
               <input value={apiKey} type="password" onChange={(event) => setApiKey(event.target.value)} />
             </label>
+            <label>
+              <span>Resume Output Folder</span>
+              <input
+                value={resumeOutputDir}
+                placeholder="D:\\Resume\\NxJob Generated"
+                onChange={(event) => setResumeOutputDir(event.target.value)}
+              />
+            </label>
             <div className="settings-actions">
               <button type="button" onClick={saveApiKey}>
                 Save AI Key
+              </button>
+              <button type="button" onClick={saveOutputFolder}>
+                Save Output Folder
               </button>
               <button type="button" className="secondary-button" onClick={clearApiKey}>
                 Clear AI Key
@@ -423,7 +457,7 @@ export function App() {
           {focusedJob ? (
             <JobDetail
               job={focusedJob}
-              masterResumeReady={Boolean(config?.master_resume_configured)}
+              masterResumeReady={Boolean(config?.master_resume_configured && config?.resume_output_dir_configured)}
               onAnalyze={() => runSponsorship(focusedJob)}
               onAnalyzeRefresh={() => runSponsorship(focusedJob, true)}
               onTailor={() => runTailor(focusedJob)}
@@ -565,7 +599,18 @@ function ResumeResult(props: {
   return (
     <section className="result-block">
       <strong>Tailored Resume</strong>
-      <p>{result.resume_version.file_path}</p>
+      <div className="compact-list">
+        <span>DOCX</span>
+        <p>{result.docx_path || result.resume_version.file_path}</p>
+      </div>
+      <div className="compact-list">
+        <span>Markdown</span>
+        <p>{result.markdown_path || "Not generated"}</p>
+      </div>
+      <div className="compact-list">
+        <span>Filename</span>
+        <p>{result.filename_base || "Not available"}</p>
+      </div>
       <small>{result.cache.hit ? "Cache hit" : "Fresh result"} · {result.resume_version.change_summary}</small>
       <div className="compact-list">
         <span>Selected bullets</span>
@@ -574,6 +619,10 @@ function ResumeResult(props: {
       <div className="compact-list">
         <span>Success references</span>
         <p>{result.used_success_references.join(", ") || "None"}</p>
+      </div>
+      <div className="compact-list">
+        <span>Layout budget</span>
+        <p>{layoutBudgetText(result.layout_budget)}</p>
       </div>
       {result.warnings.length > 0 ? (
         <ul>
@@ -641,7 +690,7 @@ async function hydrateWorkflowResults(record: JobWorkspaceRecord): Promise<JobWo
 }
 
 function setupClassName(config: ConfigStatusResponse | null): string {
-  if (!config || !config.master_resume_configured || !config.ai_provider_configured) {
+  if (!config || !config.master_resume_configured || !config.ai_provider_configured || !config.resume_output_dir_configured) {
     return "setup setup-attention";
   }
   return "setup";
@@ -665,4 +714,13 @@ function sponsorshipLabel(status: SponsorshipStatus): string {
     unknown: "Unknown"
   };
   return labels[status];
+}
+
+function layoutBudgetText(layoutBudget: Record<string, unknown>): string {
+  const body = layoutBudget.body_lines;
+  const maxBody = layoutBudget.max_body_lines;
+  if (typeof body === "number" && typeof maxBody === "number") {
+    return `${body}/${maxBody} estimated body lines`;
+  }
+  return "Not available";
 }

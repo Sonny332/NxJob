@@ -128,11 +128,31 @@ class MasterResumeBullet(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class MasterResumeEducation(BaseModel):
+    school: str = ""
+    degree: str = ""
+    location: str = ""
+    start_year: str = ""
+    end_year: str = ""
+    gpa: str = ""
+
+
+class MasterResumeExperience(BaseModel):
+    company: str = ""
+    location: str = ""
+    title: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    bullets: list[MasterResumeBullet] = Field(default_factory=list)
+
+
 class MasterResumeProfile(BaseModel):
     id: str = "master_default"
     candidate_name: str = "Candidate"
     contact_line: str = ""
     bullets: list[MasterResumeBullet] = Field(default_factory=list)
+    experience: list[MasterResumeExperience] = Field(default_factory=list)
+    education: list[MasterResumeEducation] = Field(default_factory=list)
     fixed_answers: dict[str, str] = Field(default_factory=dict)
 
 
@@ -149,6 +169,8 @@ class TailoredResumeContent(BaseModel):
     summary: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     experience_bullets: list[str] = Field(default_factory=list)
+    education: list[str] = Field(default_factory=list)
+    markdown: str = ""
 
 
 class ResumeTailorRequest(BaseModel):
@@ -159,6 +181,7 @@ class ResumeTailorRequest(BaseModel):
     contact_line: str = ""
     constraints: ResumeTailorConstraints = Field(default_factory=ResumeTailorConstraints)
     success_reference_limit: int = Field(default=3, ge=0, le=10)
+    output_directory_override: str = ""
     force_refresh: bool = False
 
 
@@ -184,6 +207,11 @@ class ResumeTailorResponse(TraceResponse):
     resume_version: ResumeVersionRecord
     used_success_references: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    docx_path: str = ""
+    markdown_path: str = ""
+    filename_base: str = ""
+    layout_budget: dict[str, Any] = Field(default_factory=dict)
+    quality_checks: dict[str, Any] = Field(default_factory=dict)
     cache: WorkflowCacheInfo = Field(default_factory=WorkflowCacheInfo)
 
 
@@ -318,6 +346,8 @@ class ConfigStatusResponse(TraceResponse):
     ai_provider_configured: bool
     ai_provider_name: str = ""
     ai_model: str = ""
+    resume_output_dir_configured: bool = False
+    resume_output_dir: str = ""
     public_lookup_available: bool = False
     warnings: list[str] = Field(default_factory=list)
 
@@ -332,6 +362,10 @@ class AiProviderConfigUpdate(BaseModel):
     base_url: str = ""
     model: str = ""
     api_key: str
+
+
+class ResumeOutputDirectoryUpdate(BaseModel):
+    path: str
 
 class FieldContext(BaseModel):
     label: str = ""

@@ -54,9 +54,17 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert body["resume_version"]["format"] == "docx"
     assert body["resume_version"]["selected_bullets"][0] == "bullet_python_api"
     assert "Selected" in body["resume_version"]["change_summary"]
+    assert body["docx_path"] == body["resume_version"]["file_path"]
+    assert body["markdown_path"].endswith(".md")
+    assert body["filename_base"].endswith("_resume")
+    assert body["layout_budget"]["max_body_lines"] == 55
+    assert body["quality_checks"]["summary_avoids_fixed_year_count"] is True
 
     file_path = Path(body["resume_version"]["file_path"])
+    markdown_path = Path(body["markdown_path"])
     assert file_path.exists()
+    assert markdown_path.exists()
+    assert "Python FastAPI services" in markdown_path.read_text(encoding="utf-8")
     paragraphs = [paragraph.text for paragraph in Document(file_path).paragraphs]
     assert any("Python FastAPI services" in text for text in paragraphs)
 
@@ -106,6 +114,7 @@ def test_tailor_resume_reuses_cache_and_can_force_refresh(tmp_path, monkeypatch)
     assert refreshed.json()["cache"]["hit"] is False
     assert first.json()["resume_version"]["id"] == second.json()["resume_version"]["id"]
     assert refreshed.json()["resume_version"]["id"] != first.json()["resume_version"]["id"]
+    assert refreshed.json()["filename_base"].endswith("_v2")
 
 
 def test_tailor_resume_uses_success_references(tmp_path, monkeypatch) -> None:
@@ -133,6 +142,112 @@ def test_tailor_resume_uses_success_references(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["used_success_references"] == ["sref_test"]
+
+
+def test_tailor_resume_includes_education_years_from_master_resume(tmp_path, monkeypatch) -> None:
+    master_path = tmp_path / "master-resume.json"
+    master_path.write_text(
+        json.dumps(
+            {
+                "id": "master_default",
+                "candidate_name": "Xu (Sonny) Shen",
+                "contact_line": "Boston, MA | sonnyshen332@gmail.com",
+                "bullets": [
+                    {
+                        "id": "bullet_python",
+                        "text": "Automated Python API workflows for operational reporting.",
+                        "tags": ["Python", "API", "automation"],
+                    }
+                ],
+                "education": [
+                    {
+                        "school": "Northeastern University",
+                        "degree": "M.S. in Energy Systems Engineering",
+                        "location": "Boston, MA",
+                        "start_year": "2018",
+                        "end_year": "2020",
+                        "gpa": "3.62 / 4.0",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Python automation role for operational APIs.")
+        response = client.post("/api/v1/resumes/tailor", json={"job_lead_id": job_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quality_checks"]["education_years_present"] is True
+    markdown = Path(body["markdown_path"]).read_text(encoding="utf-8")
+    assert "2018 - 2020" in markdown
+    assert "3.62 / 4.0" in markdown
+
+
+def test_tailor_resume_requires_configured_output_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.delenv("NXJOB_GENERATED_RESUME_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Backend automation role using Python APIs.")
+        response = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_api",
+                        "text": "Automated API workflows with Python services.",
+                        "tags": ["Python", "API"],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Resume output folder is not configured."
+
+
+def test_tailor_resume_uses_safe_date_company_job_filename(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+
+    with TestClient(create_app()) as client:
+        captured = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://example.com/jobs/tailor-test",
+                "source_site": "company_ats",
+                "page_title": "Data/Automation: Engineer* at ACME|Controls?",
+                "selected_text": "Data automation role using Python and APIs.",
+            },
+        )
+        job_id = captured.json()["job_lead"]["id"]
+        response = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_api",
+                        "text": "Automated API workflows with Python services.",
+                        "tags": ["Python", "API"],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    filename = response.json()["filename_base"]
+    assert filename.startswith("20")
+    assert filename.endswith("_resume")
+    assert not any(character in filename for character in '/\\:*?"<>|')
 
 
 def test_tailor_resume_feedback_is_saved(tmp_path, monkeypatch) -> None:
