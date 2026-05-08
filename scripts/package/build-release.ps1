@@ -41,7 +41,30 @@ try {
       }
     }
     $env:PYTHONPATH = ($pythonPaths -join [System.IO.Path]::PathSeparator)
-    Invoke-Checked python -m pytest apps\local-service\tests -q
+
+    $testRuntimeDir = Join-Path $root (".nxjob\release-test\run-" + [System.Guid]::NewGuid().ToString("N"))
+    $testTempDir = Join-Path $testRuntimeDir "temp"
+    $testLocalAppDataDir = Join-Path $testRuntimeDir "localappdata"
+    $testGeneratedResumeDir = Join-Path $testRuntimeDir "generated-resumes"
+    New-Item -ItemType Directory -Force -Path $testTempDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $testLocalAppDataDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $testGeneratedResumeDir | Out-Null
+    $env:TEMP = $testTempDir
+    $env:TMP = $testTempDir
+    $env:LOCALAPPDATA = $testLocalAppDataDir
+    $env:NXJOB_DB_PATH = Join-Path $testRuntimeDir "nxjob-test.sqlite3"
+    $env:NXJOB_GENERATED_RESUME_DIR = $testGeneratedResumeDir
+
+    Invoke-Checked -FilePath python -Arguments @(
+      "-m",
+      "pytest",
+      "apps\local-service\tests",
+      "-q",
+      "--basetemp",
+      $testTempDir,
+      "-p",
+      "no:cacheprovider"
+    )
   }
 
   & (Join-Path $root "scripts\package\build-local-service.ps1") -Version $Version -ArtifactsDir $artifactsDir
