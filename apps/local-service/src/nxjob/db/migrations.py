@@ -4,7 +4,7 @@ import sqlite3
 
 from nxjob.db.connection import db_session
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def initialize_database() -> None:
@@ -174,6 +174,7 @@ def apply_schema(connection: sqlite3.Connection) -> None:
           ON outcome_signals (application_id, outcome_at);
         """
     )
+    ensure_schema_compatibility(connection)
     connection.execute(
         """
         INSERT INTO schema_meta (key, value)
@@ -182,4 +183,30 @@ def apply_schema(connection: sqlite3.Connection) -> None:
         """,
         (str(SCHEMA_VERSION),),
     )
+
+
+def ensure_schema_compatibility(connection: sqlite3.Connection) -> None:
+    ensure_columns(
+        connection,
+        "sponsorship_evidence",
+        {
+            "prompt_log_id": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+
+
+def ensure_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+    required_columns: dict[str, str],
+) -> None:
+    existing_columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_definition in required_columns.items():
+        if column_name not in existing_columns:
+            connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+            )
 
