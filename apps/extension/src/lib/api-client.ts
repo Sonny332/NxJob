@@ -64,6 +64,12 @@ export type SponsorshipAnalyzeResponse = {
   };
   evidence: SponsorshipEvidenceItem[];
   ai_used: boolean;
+  cache: WorkflowCacheInfo;
+};
+
+export type WorkflowCacheInfo = {
+  hit: boolean;
+  cache_key: string;
 };
 
 export type ResumeTailorResponse = {
@@ -77,6 +83,53 @@ export type ResumeTailorResponse = {
   };
   used_success_references: string[];
   warnings: string[];
+  cache: WorkflowCacheInfo;
+};
+
+export type ConfigStatusResponse = {
+  trace_id: string;
+  master_resume_configured: boolean;
+  master_resume_source: string;
+  ai_provider_configured: boolean;
+  ai_provider_name: string;
+  ai_model: string;
+  public_lookup_available: boolean;
+  warnings: string[];
+};
+
+export type WorkflowResultRecord = {
+  id: string;
+  job_lead_id: string;
+  workflow_name: string;
+  cache_key: string;
+  created_at: string;
+  trace_id: string;
+  status: string;
+  result_summary: string;
+  response: Record<string, unknown>;
+};
+
+export type WorkflowResultsResponse = {
+  trace_id: string;
+  results: WorkflowResultRecord[];
+};
+
+export type ResumeFeedbackRating =
+  | "good_fit"
+  | "needs_stronger_match"
+  | "too_generic"
+  | "success_reference_candidate";
+
+export type ResumeTailorFeedbackResponse = {
+  trace_id: string;
+  feedback: {
+    id: string;
+    job_lead_id: string;
+    resume_version_id: string;
+    created_at: string;
+    rating: ResumeFeedbackRating;
+    user_notes: string;
+  };
 };
 
 export type FormAnswerDraftResponse = {
@@ -127,9 +180,34 @@ export async function captureJobLead(context: PageContext): Promise<CaptureJobLe
   return response.json() as Promise<CaptureJobLeadResponse>;
 }
 
+export async function getJobLead(jobLeadId: string): Promise<JobLeadRecord> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/job-leads/${encodeURIComponent(jobLeadId)}`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<JobLeadRecord>;
+}
+
+export async function getWorkflowResults(jobLeadId: string): Promise<WorkflowResultsResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/job-leads/${encodeURIComponent(jobLeadId)}/workflow-results`
+  );
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<WorkflowResultsResponse>;
+}
+
 export async function analyzeSponsorship(
   jobLead: JobLeadRecord,
-  context: PageContext
+  context: PageContext | null,
+  options: { forceRefresh?: boolean } = {}
 ): Promise<SponsorshipAnalyzeResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/sponsorship/analyze`, {
     method: "POST",
@@ -140,10 +218,11 @@ export async function analyzeSponsorship(
       job_lead_id: jobLead.id,
       jd_text: jobLead.jd_text,
       company_name: jobLead.company_name,
-      job_url: context.url,
+      job_url: context?.url ?? jobLead.source_url,
       application_form_text: "",
       allow_public_lookup: false,
-      allow_ai: true
+      allow_ai: true,
+      force_refresh: options.forceRefresh ?? false
     })
   });
 
@@ -155,14 +234,18 @@ export async function analyzeSponsorship(
   return response.json() as Promise<SponsorshipAnalyzeResponse>;
 }
 
-export async function tailorResume(jobLead: JobLeadRecord): Promise<ResumeTailorResponse> {
+export async function tailorResume(
+  jobLead: JobLeadRecord,
+  options: { forceRefresh?: boolean } = {}
+): Promise<ResumeTailorResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/resumes/tailor`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      job_lead_id: jobLead.id
+      job_lead_id: jobLead.id,
+      force_refresh: options.forceRefresh ?? false
     })
   });
 
@@ -172,6 +255,104 @@ export async function tailorResume(jobLead: JobLeadRecord): Promise<ResumeTailor
   }
 
   return response.json() as Promise<ResumeTailorResponse>;
+}
+
+export async function checkConfigStatus(): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/status`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function saveMasterResume(content: string, sourceFilename: string): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/master-resume`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      content,
+      source_filename: sourceFilename
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function saveAiProvider(payload: {
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-provider`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: payload.provider,
+      base_url: payload.baseUrl,
+      model: payload.model,
+      api_key: payload.apiKey
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function clearAiProvider(): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-provider`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function submitResumeFeedback(payload: {
+  jobLeadId: string;
+  resumeVersionId: string;
+  rating: ResumeFeedbackRating;
+  userNotes?: string;
+}): Promise<ResumeTailorFeedbackResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/resumes/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: payload.jobLeadId,
+      resume_version_id: payload.resumeVersionId,
+      rating: payload.rating,
+      user_notes: payload.userNotes ?? ""
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ResumeTailorFeedbackResponse>;
 }
 
 export async function draftFormAnswer(

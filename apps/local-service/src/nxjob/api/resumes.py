@@ -6,11 +6,15 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from nxjob.core.trace import new_trace_id
+from nxjob.core.workflow_cache import stable_hash, workflow_cache_key
 from nxjob.db.connection import db_session
 from nxjob.db.repositories import (
     create_prompt_log,
+    create_resume_tailor_feedback,
     create_resume_version,
     create_workflow_trace,
+    create_workflow_result,
+    find_cached_workflow_result,
     get_job_lead,
     list_success_references,
     update_job_lead_status,
@@ -22,8 +26,11 @@ from nxjob.resumes.master_resume import MasterResumeNotConfiguredError, load_mas
 from nxjob.schemas.core import (
     PromptLogCreate,
     ResumeTailorRequest,
+    ResumeTailorFeedbackCreate,
+    ResumeTailorFeedbackResponse,
     ResumeTailorResponse,
     ResumeVersionCreate,
+    WorkflowCacheInfo,
     WorkflowTraceRecord,
 )
 from nxjob.storage.paths import generated_resume_dir
@@ -50,8 +57,6 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
     if not master_resume_bullets:
         raise HTTPException(status_code=422, detail="master_resume_bullets is required")
 
-    trace_id = new_trace_id()
-
     with db_session() as connection:
         try:
             job_lead = get_job_lead(connection, payload.job_lead_id)
@@ -63,6 +68,31 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             extract_keywords(job_lead.jd_text),
             payload.success_reference_limit,
         )
+        cache_key = workflow_cache_key(
+            WORKFLOW_NAME,
+            "v1",
+            {
+                "jd_hash": job_lead.jd_hash,
+                "master_resume": stable_hash(
+                    {
+                        "id": master_resume_id,
+                        "candidate_name": candidate_name,
+                        "contact_line": contact_line,
+                        "bullets": [bullet.model_dump() for bullet in master_resume_bullets],
+                    }
+                ),
+                "constraints": payload.constraints.model_dump(),
+                "success_references": [reference.id for reference in success_references],
+            },
+        )
+        if not payload.force_refresh:
+            cached = find_cached_workflow_result(connection, WORKFLOW_NAME, cache_key)
+            if cached is not None:
+                return ResumeTailorResponse.model_validate(cached.response).model_copy(
+                    update={"cache": WorkflowCacheInfo(hit=True, cache_key=cache_key)}
+                )
+
+        trace_id = new_trace_id()
         draft = tailor_resume_content(
             job_lead,
             master_resume_bullets,
@@ -125,12 +155,40 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             "DOCX layout validation is limited to file existence in M5.",
         ]
 
-    return ResumeTailorResponse(
+    response = ResumeTailorResponse(
         trace_id=trace_id,
         resume_version=resume_version,
         used_success_references=[reference.id for reference in success_references],
         warnings=warnings,
+        cache=WorkflowCacheInfo(hit=False, cache_key=cache_key),
     )
+    with db_session() as connection:
+        create_workflow_result(
+            connection,
+            job_lead_id=payload.job_lead_id,
+            workflow_name=WORKFLOW_NAME,
+            cache_key=cache_key,
+            trace_id=trace_id,
+            status="completed",
+            result_summary=resume_version.change_summary,
+            response=response.model_dump(),
+        )
+
+    return response
+
+
+@router.post("/feedback", response_model=ResumeTailorFeedbackResponse)
+def create_tailor_feedback(payload: ResumeTailorFeedbackCreate) -> ResumeTailorFeedbackResponse:
+    trace_id = new_trace_id()
+    with db_session() as connection:
+        try:
+            get_job_lead(connection, payload.job_lead_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="JobLead not found") from exc
+
+        feedback = create_resume_tailor_feedback(connection, payload)
+
+    return ResumeTailorFeedbackResponse(trace_id=trace_id, feedback=feedback)
 
 
 def _resume_output_path(job_lead_id: str, trace_id: str) -> Path:

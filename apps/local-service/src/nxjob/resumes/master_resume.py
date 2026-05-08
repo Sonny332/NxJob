@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from nxjob.schemas.core import MasterResumeProfile
+from nxjob.settings.private_config import configured_master_resume_path
 
 
 class MasterResumeNotConfiguredError(RuntimeError):
@@ -12,10 +12,10 @@ class MasterResumeNotConfiguredError(RuntimeError):
 
 
 def master_resume_path() -> Path:
-    configured = os.environ.get("NXJOB_MASTER_RESUME_PATH")
-    if not configured:
-        raise MasterResumeNotConfiguredError("NXJOB_MASTER_RESUME_PATH is not configured.")
-    return Path(configured)
+    configured = configured_master_resume_path()
+    if configured is None:
+        raise MasterResumeNotConfiguredError("Master resume is not configured.")
+    return configured
 
 
 def load_master_resume() -> MasterResumeProfile:

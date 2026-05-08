@@ -22,7 +22,42 @@ def test_database_initializes_repeatably(tmp_path, monkeypatch) -> None:
             "SELECT value FROM schema_meta WHERE key = 'schema_version'"
         ).fetchone()
 
-    assert version["value"] == "5"
+    assert version["value"] == "6"
+
+
+def test_database_migration_adds_missing_legacy_columns(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute(
+            """
+            CREATE TABLE sponsorship_evidence (
+              id TEXT PRIMARY KEY,
+              job_lead_id TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              trace_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              confidence REAL NOT NULL,
+              source TEXT NOT NULL,
+              evidence_text TEXT NOT NULL,
+              evidence_url TEXT NOT NULL DEFAULT '',
+              is_legal_conclusion INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.commit()
+
+    initialize_database()
+
+    with connect(db_path) as connection:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(sponsorship_evidence)").fetchall()
+        }
+
+    assert "prompt_log_id" in columns
 
 
 def test_create_and_read_core_records(tmp_path, monkeypatch) -> None:

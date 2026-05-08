@@ -4,8 +4,13 @@ from fastapi import APIRouter, HTTPException
 
 from nxjob.core.trace import new_trace_id
 from nxjob.db.connection import db_session
-from nxjob.db.repositories import create_job_lead, get_job_lead
-from nxjob.schemas.core import JobLeadCapture, JobLeadCaptureResponse, JobLeadRecord
+from nxjob.db.repositories import create_job_lead, get_job_lead, list_workflow_results_for_job
+from nxjob.schemas.core import (
+    JobLeadCapture,
+    JobLeadCaptureResponse,
+    JobLeadRecord,
+    WorkflowResultsResponse,
+)
 
 router = APIRouter(prefix="/api/v1/job-leads", tags=["job-leads"])
 
@@ -36,4 +41,18 @@ def read_job_lead(job_lead_id: str) -> JobLeadRecord:
             return get_job_lead(connection, job_lead_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="JobLead not found") from exc
+
+
+@router.get("/{job_lead_id}/workflow-results", response_model=WorkflowResultsResponse)
+def read_job_workflow_results(job_lead_id: str) -> WorkflowResultsResponse:
+    with db_session() as connection:
+        try:
+            get_job_lead(connection, job_lead_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="JobLead not found") from exc
+
+        return WorkflowResultsResponse(
+            trace_id=new_trace_id(),
+            results=list_workflow_results_for_job(connection, job_lead_id),
+        )
 

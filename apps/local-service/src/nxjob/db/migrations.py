@@ -4,7 +4,7 @@ import sqlite3
 
 from nxjob.db.connection import db_session
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def initialize_database() -> None:
@@ -172,6 +172,40 @@ def apply_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_outcome_signals_application
           ON outcome_signals (application_id, outcome_at);
+
+        CREATE TABLE IF NOT EXISTS workflow_results (
+          id TEXT PRIMARY KEY,
+          job_lead_id TEXT NOT NULL,
+          workflow_name TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          trace_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          result_summary TEXT NOT NULL DEFAULT '',
+          response_json TEXT NOT NULL DEFAULT '{}',
+          FOREIGN KEY (job_lead_id) REFERENCES job_leads (id),
+          FOREIGN KEY (trace_id) REFERENCES workflow_traces (trace_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_results_cache
+          ON workflow_results (workflow_name, cache_key, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_results_job_lead
+          ON workflow_results (job_lead_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS resume_tailor_feedback (
+          id TEXT PRIMARY KEY,
+          job_lead_id TEXT NOT NULL,
+          resume_version_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          rating TEXT NOT NULL,
+          user_notes TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (job_lead_id) REFERENCES job_leads (id),
+          FOREIGN KEY (resume_version_id) REFERENCES resume_versions (id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resume_tailor_feedback_resume
+          ON resume_tailor_feedback (resume_version_id, created_at);
         """
     )
     connection.execute(
@@ -182,4 +216,54 @@ def apply_schema(connection: sqlite3.Connection) -> None:
         """,
         (str(SCHEMA_VERSION),),
     )
+    _ensure_columns(
+        connection,
+        "sponsorship_evidence",
+        {
+            "prompt_log_id": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "resume_versions",
+        {
+            "prompt_log_id": "TEXT NOT NULL DEFAULT ''",
+            "version_label": "TEXT NOT NULL DEFAULT ''",
+            "user_approved": "INTEGER NOT NULL DEFAULT 0",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "applications",
+        {
+            "follow_up_at": "TEXT NOT NULL DEFAULT ''",
+            "user_notes": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+    _ensure_columns(
+        connection,
+        "job_leads",
+        {
+            "company_name": "TEXT NOT NULL DEFAULT ''",
+            "job_title": "TEXT NOT NULL DEFAULT ''",
+            "location": "TEXT NOT NULL DEFAULT ''",
+            "user_notes": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+
+
+def _ensure_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+    columns: dict[str, str],
+) -> None:
+    existing = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_definition in columns.items():
+        if column_name not in existing:
+            connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+            )
 
