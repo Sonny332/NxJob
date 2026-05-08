@@ -56,3 +56,17 @@ git worktree prune
 - Before deleting a worktree, confirm its branch is pushed or merged.
 - Use branch names like `codex/m2-local-service-core`.
 
+## Release Worktrees
+
+GitHub Release publication can be done from Codex CLI, but only from a clean release-ready checkout.
+
+Recommended rule:
+
+- Do not publish a GitHub Release from an active feature worktree.
+- Use `main` after the release PR is merged, or create a dedicated release worktree from the tagged commit.
+- Confirm `git status -sb` is clean before building, tagging, or uploading assets.
+- Build local artifacts into `releases/<version>` before publishing.
+- Confirm `release-manifest.json` commit matches tag `v<version>`.
+- Upload release assets from `releases/<version>`, not from source folders.
+
+This keeps feature-branch state, generated artifacts, and GitHub Release assets from drifting apart.
