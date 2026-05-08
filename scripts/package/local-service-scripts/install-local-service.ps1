@@ -40,6 +40,11 @@ $sourceRoot = Join-Path $PSScriptRoot "..\app\local-service"
 $packageRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $installedServiceRoot = Join-Path $InstallRoot "app\local-service"
 $venv = Join-Path $InstallRoot ".venv"
+
+if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot "pyproject.toml"))) {
+  throw "NxJob release package layout is invalid. Use the GitHub Release asset named NxJob-<version>.zip, not the automatic Source code zip."
+}
+
 $pythonCommand = Get-Command python -ErrorAction Stop
 $versionText = (& $pythonCommand.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
 if ($LASTEXITCODE -ne 0) {
