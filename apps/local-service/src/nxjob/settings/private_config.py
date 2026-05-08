@@ -6,13 +6,14 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from nxjob.schemas.core import AiProviderConfigUpdate, MasterResumeProfile
+from nxjob.schemas.core import AiProviderConfigUpdate, MasterResumeProfile, ResumeOutputDirectoryUpdate
 from nxjob.storage.paths import app_data_dir
 
 
 PRIVATE_DIR_NAME = "private"
 MASTER_RESUME_FILE = "master-resume.json"
 AI_PROVIDER_FILE = "ai-provider.json"
+RESUME_OUTPUT_FILE = "resume-output.json"
 
 
 class PrivateConfigError(RuntimeError):
@@ -29,6 +30,10 @@ def private_master_resume_path() -> Path:
 
 def private_ai_provider_path() -> Path:
     return private_config_dir() / AI_PROVIDER_FILE
+
+
+def private_resume_output_path() -> Path:
+    return private_config_dir() / RESUME_OUTPUT_FILE
 
 
 def configured_master_resume_path() -> Path | None:
@@ -98,6 +103,58 @@ def read_ai_provider_status() -> tuple[bool, str, str]:
 
     configured = bool(str(data.get("api_key", "")).strip())
     return configured, str(data.get("provider", "")), str(data.get("model", ""))
+
+
+def configured_resume_output_dir() -> Path | None:
+    configured = os.environ.get("NXJOB_GENERATED_RESUME_DIR")
+    if configured:
+        return Path(configured)
+
+    path = private_resume_output_path()
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    configured_path = str(data.get("path", "")).strip()
+    return Path(configured_path) if configured_path else None
+
+
+def read_resume_output_status() -> tuple[bool, str, str]:
+    configured = os.environ.get("NXJOB_GENERATED_RESUME_DIR")
+    if configured:
+        path = Path(configured)
+        return path.exists(), "environment", str(path) if path.exists() else str(path)
+
+    path = configured_resume_output_dir()
+    if path is None:
+        return False, "", ""
+
+    return path.exists(), "private_config" if path.exists() else "", str(path)
+
+
+def save_resume_output_dir(payload: ResumeOutputDirectoryUpdate) -> Path:
+    raw_path = payload.path.strip()
+    if not raw_path:
+        raise PrivateConfigError("Resume output folder is required.")
+
+    path = Path(raw_path).expanduser()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".nxjob-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise PrivateConfigError(f"Resume output folder is not writable: {path}") from exc
+
+    config_path = private_resume_output_path()
+    _ensure_private_dir(config_path.parent)
+    _write_private_json(config_path, {"path": str(path)})
+    return path
 
 
 def _ensure_private_dir(path: Path) -> None:

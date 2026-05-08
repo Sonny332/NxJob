@@ -83,6 +83,11 @@ export type ResumeTailorResponse = {
   };
   used_success_references: string[];
   warnings: string[];
+  docx_path: string;
+  markdown_path: string;
+  filename_base: string;
+  layout_budget: Record<string, unknown>;
+  quality_checks: Record<string, unknown>;
   cache: WorkflowCacheInfo;
 };
 
@@ -93,6 +98,8 @@ export type ConfigStatusResponse = {
   ai_provider_configured: boolean;
   ai_provider_name: string;
   ai_model: string;
+  resume_output_dir_configured: boolean;
+  resume_output_dir: string;
   public_lookup_available: boolean;
   warnings: string[];
 };
@@ -305,6 +312,23 @@ export async function saveAiProvider(payload: {
       model: payload.model,
       api_key: payload.apiKey
     })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function saveResumeOutputDirectory(path: string): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/resume-output-directory`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ path })
   });
 
   if (!response.ok) {

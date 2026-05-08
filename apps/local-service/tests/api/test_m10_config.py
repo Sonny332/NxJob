@@ -5,12 +5,17 @@ import json
 from fastapi.testclient import TestClient
 
 from nxjob.main import create_app
-from nxjob.settings.private_config import private_ai_provider_path, private_master_resume_path
+from nxjob.settings.private_config import (
+    private_ai_provider_path,
+    private_master_resume_path,
+    private_resume_output_path,
+)
 
 
 def test_config_status_reports_missing_private_inputs(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.delenv("NXJOB_MASTER_RESUME_PATH", raising=False)
+    monkeypatch.delenv("NXJOB_GENERATED_RESUME_DIR", raising=False)
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
 
     with TestClient(create_app()) as client:
@@ -20,7 +25,9 @@ def test_config_status_reports_missing_private_inputs(tmp_path, monkeypatch) -> 
     body = response.json()
     assert body["master_resume_configured"] is False
     assert body["ai_provider_configured"] is False
+    assert body["resume_output_dir_configured"] is False
     assert "Master Resume is not configured." in body["warnings"]
+    assert "Resume output folder is not configured." in body["warnings"]
 
 
 def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_path, monkeypatch) -> None:
@@ -68,3 +75,22 @@ def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_p
     assert private_master_resume_path().exists()
     assert private_ai_provider_path().exists() is False
     assert cleared.json()["ai_provider_configured"] is False
+
+
+def test_config_can_save_resume_output_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    monkeypatch.delenv("NXJOB_GENERATED_RESUME_DIR", raising=False)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    output_dir = tmp_path / "generated resumes"
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/api/v1/config/resume-output-directory",
+            json={"path": str(output_dir)},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["resume_output_dir_configured"] is True
+    assert body["resume_output_dir"] == str(output_dir)
+    assert private_resume_output_path().exists()
