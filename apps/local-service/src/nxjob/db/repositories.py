@@ -16,11 +16,14 @@ from nxjob.schemas.core import (
     OutcomeSignalRecord,
     PromptLogCreate,
     PromptLogRecord,
+    ResumeTailorFeedbackCreate,
+    ResumeTailorFeedbackRecord,
     ResumeVersionCreate,
     ResumeVersionRecord,
     SponsorshipAnalyzeResponse,
     SuccessReferenceCreate,
     SuccessReferenceRecord,
+    WorkflowResultRecord,
     WorkflowTraceRecord,
 )
 
@@ -144,6 +147,23 @@ def create_resume_version(
         ),
     )
     return get_resume_version(connection, record_id)
+
+
+def get_resume_version_for_job_by_file_path(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+    file_path: str,
+) -> ResumeVersionRecord | None:
+    row = connection.execute(
+        """
+        SELECT * FROM resume_versions
+        WHERE job_lead_id = ? AND file_path = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (job_lead_id, file_path),
+    ).fetchone()
+    return row_to_resume_version(row) if row else None
 
 
 def get_resume_version(connection: sqlite3.Connection, record_id: str) -> ResumeVersionRecord:
@@ -299,6 +319,90 @@ def create_prompt_log(connection: sqlite3.Connection, payload: PromptLogCreate) 
         ),
     )
     return get_prompt_log(connection, record_id)
+
+
+def row_to_workflow_result(row: sqlite3.Row) -> WorkflowResultRecord:
+    return WorkflowResultRecord(
+        id=row["id"],
+        job_lead_id=row["job_lead_id"],
+        workflow_name=row["workflow_name"],
+        cache_key=row["cache_key"],
+        created_at=row["created_at"],
+        trace_id=row["trace_id"],
+        status=row["status"],
+        result_summary=row["result_summary"],
+        response=json.loads(row["response_json"] or "{}"),
+    )
+
+
+def create_workflow_result(
+    connection: sqlite3.Connection,
+    *,
+    job_lead_id: str,
+    workflow_name: str,
+    cache_key: str,
+    trace_id: str,
+    status: str,
+    result_summary: str,
+    response: dict[str, object],
+) -> WorkflowResultRecord:
+    record_id = new_id("wfr")
+    connection.execute(
+        """
+        INSERT INTO workflow_results (
+          id, job_lead_id, workflow_name, cache_key, created_at, trace_id,
+          status, result_summary, response_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record_id,
+            job_lead_id,
+            workflow_name,
+            cache_key,
+            utc_now(),
+            trace_id,
+            status,
+            result_summary,
+            json.dumps(response, ensure_ascii=False),
+        ),
+    )
+    row = connection.execute("SELECT * FROM workflow_results WHERE id = ?", (record_id,)).fetchone()
+    return row_to_workflow_result(row)
+
+
+def find_cached_workflow_result(
+    connection: sqlite3.Connection,
+    workflow_name: str,
+    cache_key: str,
+) -> WorkflowResultRecord | None:
+    row = connection.execute(
+        """
+        SELECT * FROM workflow_results
+        WHERE workflow_name = ? AND cache_key = ? AND status = 'completed'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (workflow_name, cache_key),
+    ).fetchone()
+    return row_to_workflow_result(row) if row else None
+
+
+def list_workflow_results_for_job(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+    limit: int = 20,
+) -> list[WorkflowResultRecord]:
+    rows = connection.execute(
+        """
+        SELECT * FROM workflow_results
+        WHERE job_lead_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (job_lead_id, limit),
+    ).fetchall()
+    return [row_to_workflow_result(row) for row in rows]
 
 
 def get_prompt_log(connection: sqlite3.Connection, record_id: str) -> PromptLogRecord:
@@ -501,4 +605,35 @@ def create_sponsorship_evidence(
                 int(analysis.sponsorship.is_legal_conclusion),
             ),
         )
+
+
+def create_resume_tailor_feedback(
+    connection: sqlite3.Connection,
+    payload: ResumeTailorFeedbackCreate,
+) -> ResumeTailorFeedbackRecord:
+    record = ResumeTailorFeedbackRecord(
+        id=new_id("rfb"),
+        job_lead_id=payload.job_lead_id,
+        resume_version_id=payload.resume_version_id,
+        created_at=utc_now(),
+        rating=payload.rating,
+        user_notes=payload.user_notes,
+    )
+    connection.execute(
+        """
+        INSERT INTO resume_tailor_feedback (
+          id, job_lead_id, resume_version_id, created_at, rating, user_notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.id,
+            record.job_lead_id,
+            record.resume_version_id,
+            record.created_at,
+            record.rating,
+            record.user_notes,
+        ),
+    )
+    return record
 

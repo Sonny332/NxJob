@@ -75,7 +75,7 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert resume_row[0] == "tailored"
 
 
-def test_tailor_resume_creates_repeatable_versions(tmp_path, monkeypatch) -> None:
+def test_tailor_resume_reuses_cache_and_can_force_refresh(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
     monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
 
@@ -93,11 +93,19 @@ def test_tailor_resume_creates_repeatable_versions(tmp_path, monkeypatch) -> Non
         }
         first = client.post("/api/v1/resumes/tailor", json=payload)
         second = client.post("/api/v1/resumes/tailor", json=payload)
+        refreshed = client.post(
+            "/api/v1/resumes/tailor",
+            json={**payload, "force_refresh": True},
+        )
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json()["resume_version"]["id"] != second.json()["resume_version"]["id"]
-    assert first.json()["resume_version"]["file_path"] != second.json()["resume_version"]["file_path"]
+    assert refreshed.status_code == 200
+    assert first.json()["cache"]["hit"] is False
+    assert second.json()["cache"]["hit"] is True
+    assert refreshed.json()["cache"]["hit"] is False
+    assert first.json()["resume_version"]["id"] == second.json()["resume_version"]["id"]
+    assert refreshed.json()["resume_version"]["id"] != first.json()["resume_version"]["id"]
 
 
 def test_tailor_resume_uses_success_references(tmp_path, monkeypatch) -> None:
@@ -125,6 +133,40 @@ def test_tailor_resume_uses_success_references(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["used_success_references"] == ["sref_test"]
+
+
+def test_tailor_resume_feedback_is_saved(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Backend automation role using Python APIs.")
+        tailored = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_api",
+                        "text": "Automated API workflows with Python services.",
+                        "tags": ["Python", "API"],
+                    }
+                ],
+            },
+        )
+        response = client.post(
+            "/api/v1/resumes/feedback",
+            json={
+                "job_lead_id": job_id,
+                "resume_version_id": tailored.json()["resume_version"]["id"],
+                "rating": "good_fit",
+                "user_notes": "Strong enough for MVP.",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["feedback"]["id"].startswith("rfb_")
+    assert response.json()["feedback"]["rating"] == "good_fit"
 
 
 def _capture_job(client: TestClient, jd_text: str) -> str:

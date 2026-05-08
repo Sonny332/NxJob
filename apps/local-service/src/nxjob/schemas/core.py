@@ -50,6 +50,11 @@ class TraceResponse(BaseModel):
     trace_id: str
 
 
+class WorkflowCacheInfo(BaseModel):
+    hit: bool = False
+    cache_key: str = ""
+
+
 class JobLeadCapture(BaseModel):
     source_url: AnyUrl
     source_site: SourceSite = "other"
@@ -107,12 +112,14 @@ class SponsorshipAnalyzeRequest(BaseModel):
     application_form_text: str = ""
     allow_public_lookup: bool = False
     allow_ai: bool = True
+    force_refresh: bool = False
 
 
 class SponsorshipAnalyzeResponse(TraceResponse):
     sponsorship: SponsorshipSummary
     evidence: list[SponsorshipEvidenceItem] = Field(default_factory=list)
     ai_used: bool = False
+    cache: WorkflowCacheInfo = Field(default_factory=WorkflowCacheInfo)
 
 
 class MasterResumeBullet(BaseModel):
@@ -152,6 +159,7 @@ class ResumeTailorRequest(BaseModel):
     contact_line: str = ""
     constraints: ResumeTailorConstraints = Field(default_factory=ResumeTailorConstraints)
     success_reference_limit: int = Field(default=3, ge=0, le=10)
+    force_refresh: bool = False
 
 
 class ResumeVersionCreate(BaseModel):
@@ -176,6 +184,31 @@ class ResumeTailorResponse(TraceResponse):
     resume_version: ResumeVersionRecord
     used_success_references: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    cache: WorkflowCacheInfo = Field(default_factory=WorkflowCacheInfo)
+
+
+ResumeFeedbackRating = Literal[
+    "good_fit",
+    "needs_stronger_match",
+    "too_generic",
+    "success_reference_candidate",
+]
+
+
+class ResumeTailorFeedbackCreate(BaseModel):
+    job_lead_id: str
+    resume_version_id: str
+    rating: ResumeFeedbackRating
+    user_notes: str = ""
+
+
+class ResumeTailorFeedbackRecord(ResumeTailorFeedbackCreate):
+    id: str
+    created_at: str
+
+
+class ResumeTailorFeedbackResponse(TraceResponse):
+    feedback: ResumeTailorFeedbackRecord
 
 
 class ResumeVersionResponse(TraceResponse):
@@ -261,6 +294,44 @@ class SuccessReferenceListResponse(TraceResponse):
 
 class SuccessReferenceDetailResponse(TraceResponse):
     detail: SuccessReferenceDetail
+
+
+class WorkflowResultRecord(BaseModel):
+    id: str
+    job_lead_id: str
+    workflow_name: str
+    cache_key: str
+    created_at: str
+    trace_id: str
+    status: str
+    result_summary: str = ""
+    response: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowResultsResponse(TraceResponse):
+    results: list[WorkflowResultRecord] = Field(default_factory=list)
+
+
+class ConfigStatusResponse(TraceResponse):
+    master_resume_configured: bool
+    master_resume_source: str = ""
+    ai_provider_configured: bool
+    ai_provider_name: str = ""
+    ai_model: str = ""
+    public_lookup_available: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MasterResumeConfigUpdate(BaseModel):
+    content: str
+    source_filename: str = ""
+
+
+class AiProviderConfigUpdate(BaseModel):
+    provider: str = "openai_compatible"
+    base_url: str = ""
+    model: str = ""
+    api_key: str
 
 class FieldContext(BaseModel):
     label: str = ""

@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import json
+
+from fastapi.testclient import TestClient
+
+from nxjob.main import create_app
+from nxjob.settings.private_config import private_ai_provider_path, private_master_resume_path
+
+
+def test_config_status_reports_missing_private_inputs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("NXJOB_MASTER_RESUME_PATH", raising=False)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        response = client.get("/api/v1/config/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["master_resume_configured"] is False
+    assert body["ai_provider_configured"] is False
+    assert "Master Resume is not configured." in body["warnings"]
+
+
+def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("NXJOB_MASTER_RESUME_PATH", raising=False)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    master_resume = {
+        "id": "master_default",
+        "candidate_name": "Candidate",
+        "contact_line": "candidate@example.com",
+        "bullets": [
+            {
+                "id": "bullet_api",
+                "text": "Built Python FastAPI automation services.",
+                "tags": ["Python", "FastAPI"],
+            }
+        ],
+        "fixed_answers": {},
+    }
+
+    with TestClient(create_app()) as client:
+        master = client.post(
+            "/api/v1/config/master-resume",
+            json={"content": json.dumps(master_resume), "source_filename": "master.json"},
+        )
+        ai = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.test/v1",
+                "model": "test-model",
+                "api_key": "sk-test-secret",
+            },
+        )
+        status = client.get("/api/v1/config/status")
+        cleared = client.delete("/api/v1/config/ai-provider")
+
+    assert master.status_code == 200
+    assert ai.status_code == 200
+    assert status.status_code == 200
+    assert "sk-test-secret" not in ai.text
+    assert status.json()["master_resume_configured"] is True
+    assert status.json()["ai_provider_configured"] is True
+    assert private_master_resume_path().exists()
+    assert private_ai_provider_path().exists() is False
+    assert cleared.json()["ai_provider_configured"] is False

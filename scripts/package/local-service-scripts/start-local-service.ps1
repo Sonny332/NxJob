@@ -94,7 +94,6 @@ if ($owner) {
 
 $arguments = @(
   "-m", "uvicorn", "nxjob.main:app",
-  "--app-dir", $serviceSrc,
   "--host", $HostAddress,
   "--port", "$Port"
 )

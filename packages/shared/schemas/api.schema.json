@@ -49,13 +49,14 @@
         "job_url": { "type": "string" },
         "application_form_text": { "type": "string" },
         "allow_public_lookup": { "type": "boolean" },
-        "allow_ai": { "type": "boolean" }
+        "allow_ai": { "type": "boolean" },
+        "force_refresh": { "type": "boolean" }
       },
       "additionalProperties": false
     },
     "sponsorshipAnalyzeResponse": {
       "type": "object",
-      "required": ["trace_id", "sponsorship", "evidence", "ai_used"],
+      "required": ["trace_id", "sponsorship", "evidence", "ai_used", "cache"],
       "properties": {
         "trace_id": { "type": "string" },
         "sponsorship": {
@@ -101,7 +102,8 @@
             "additionalProperties": false
           }
         },
-        "ai_used": { "type": "boolean" }
+        "ai_used": { "type": "boolean" },
+        "cache": { "$ref": "#/properties/workflowCacheInfo" }
       },
       "additionalProperties": false
     },
@@ -135,13 +137,14 @@
           },
           "additionalProperties": false
         },
-        "success_reference_limit": { "type": "integer", "minimum": 0, "maximum": 10 }
+        "success_reference_limit": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "force_refresh": { "type": "boolean" }
       },
       "additionalProperties": false
     },
     "resumeTailorResponse": {
       "type": "object",
-      "required": ["trace_id", "resume_version", "used_success_references", "warnings"],
+      "required": ["trace_id", "resume_version", "used_success_references", "warnings", "cache"],
       "properties": {
         "trace_id": { "type": "string" },
         "resume_version": {
@@ -177,7 +180,8 @@
           "additionalProperties": false
         },
         "used_success_references": { "type": "array", "items": { "type": "string" } },
-        "warnings": { "type": "array", "items": { "type": "string" } }
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "cache": { "$ref": "#/properties/workflowCacheInfo" }
       },
       "additionalProperties": false
     },
@@ -318,6 +322,76 @@
         "success_references": {
           "type": "array",
           "items": { "$ref": "#/properties/successReference" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowCacheInfo": {
+      "type": "object",
+      "required": ["hit", "cache_key"],
+      "properties": {
+        "hit": { "type": "boolean" },
+        "cache_key": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "configStatusResponse": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "master_resume_configured",
+        "master_resume_source",
+        "ai_provider_configured",
+        "ai_provider_name",
+        "ai_model",
+        "public_lookup_available",
+        "warnings"
+      ],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "master_resume_configured": { "type": "boolean" },
+        "master_resume_source": { "type": "string" },
+        "ai_provider_configured": { "type": "boolean" },
+        "ai_provider_name": { "type": "string" },
+        "ai_model": { "type": "string" },
+        "public_lookup_available": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "workflowResultsResponse": {
+      "type": "object",
+      "required": ["trace_id", "results"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "job_lead_id",
+              "workflow_name",
+              "cache_key",
+              "created_at",
+              "trace_id",
+              "status",
+              "result_summary",
+              "response"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "job_lead_id": { "type": "string" },
+              "workflow_name": { "type": "string" },
+              "cache_key": { "type": "string" },
+              "created_at": { "type": "string" },
+              "trace_id": { "type": "string" },
+              "status": { "type": "string" },
+              "result_summary": { "type": "string" },
+              "response": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false
