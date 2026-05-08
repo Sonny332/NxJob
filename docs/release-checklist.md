@@ -1,11 +1,15 @@
 # NxJob Release Checklist
 
+NxJob version numbers follow `docs/versioning.md`.
+
 Before every release:
 
 - README is current.
 - LICENSE exists and matches the intended distribution model.
-- Version is updated.
-- Git tag is created.
+- Version is updated according to SemVer.
+- Local `releases/<version>` artifacts are generated from the exact release commit.
+- `release-manifest.json` commit matches the Git tag commit.
+- Git tag `v<version>` is created.
 - Release notes describe user-facing changes and known limits.
 - One-click Windows package `NxJob-<version>.zip` is generated.
 - Windows local-service installer is generated.
@@ -23,4 +27,25 @@ Before every release:
 - Desktop/local-service data source and browser-extension data source boundaries are clear.
 
 MVP should present installers and packaged artifacts to non-technical users, not source code or development scripts.
+
+## Local Release Folder Rule
+
+Every version change must update the local release folder before GitHub Release publication.
+
+Required folder:
+
+```text
+releases/<version>/
+```
+
+Required files:
+
+- `NxJob-<version>.zip`
+- `nxjob-local-service-<version>.zip`
+- `nxjob-extension-<version>.zip`
+- `release-manifest.json`
+- `release-test-record-<version>.md`
+
+The GitHub Release should upload these files from `releases/<version>`.
+Do not upload GitHub's automatic source archive as the user-facing installer.
 

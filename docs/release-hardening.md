@@ -2,6 +2,8 @@
 
 M9 improves the MVP packaging flow without changing NxJob's product behavior.
 
+Version numbers follow `docs/versioning.md`.
+
 ## Scope
 
 - Keep Phase 1 REST-only.
@@ -30,6 +32,16 @@ Run:
 The build script runs automated checks, builds both packages, writes the release manifest, writes a release test record, and validates the artifacts.
 
 `NxJob-<version>.zip` is the default user-facing package. Its zip root must contain the one-click `.bat` launchers. Users should not install from GitHub's automatic source archive because that archive preserves repository paths such as `scripts/package/local-service-root-scripts`.
+
+The release folder is the source of truth for GitHub Release uploads:
+
+```text
+releases/<version>/
+```
+
+Before publishing, confirm `release-manifest.json` points to the same commit as tag `v<version>`.
+
+If the release build requires a packaging-script fix, commit the fix first, rebuild the release folder, then tag the new commit.
 
 ## Local Service Package Contract
 
