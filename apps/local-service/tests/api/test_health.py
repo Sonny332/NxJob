@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from nxjob import __version__
 from nxjob.main import create_app
 
 
@@ -11,6 +12,6 @@ def test_health() -> None:
     assert response.json() == {
         "status": "ok",
         "service": "nxjob-local-service",
-        "version": "0.1.0",
+        "version": __version__,
     }
 
