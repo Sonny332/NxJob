@@ -27,6 +27,12 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "docs") | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $root "apps\local-service\pyproject.toml") -Destination (Join-Path $stage "app\local-service\pyproject.toml") -Force
 Copy-Item -Path (Join-Path $root "apps\local-service\src") -Destination (Join-Path $stage "app\local-service\src") -Recurse -Force
+Get-ChildItem -LiteralPath (Join-Path $stage "app\local-service\src") -Directory -Recurse -Force |
+  Where-Object { $_.Name -eq "__pycache__" } |
+  Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath (Join-Path $stage "app\local-service\src") -File -Recurse -Force |
+  Where-Object { $_.Extension -in @(".pyc", ".pyo") } |
+  Remove-Item -Force
 Copy-Item -LiteralPath (Join-Path $root "README.md") -Destination (Join-Path $stage "README.md") -Force
 Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $stage "LICENSE") -Force
 Copy-Item -LiteralPath (Join-Path $root "docs\install-windows.md") -Destination (Join-Path $stage "docs\install-windows.md") -Force
