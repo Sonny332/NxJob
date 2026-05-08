@@ -32,3 +32,5 @@ Current local MVP setup may place the user's real master resume at `private/mast
 ## Future Direction
 
 NxJob should later provide a helper skill or UI flow that converts a normal resume into the structured master resume format. That generated file still belongs to local private storage unless the user explicitly exports it.
+
+The runtime should continue to use validated JSON as the canonical master resume format. Uploaded `.md`, `.txt`, `.doc`, or `.docx` resumes are import sources only; they should be converted, reviewed, and saved under local private config before use.

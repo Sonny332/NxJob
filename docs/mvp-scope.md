@@ -38,6 +38,7 @@ AI layer:
 - Sponsorship fallback only when JD and local rules are insufficient.
 - Resume content selection and rewrite.
 - Complex form answer drafting.
+- Master Resume Builder is documented as a future helper flow; MVP runtime uses validated JSON only.
 
 ## Out of Scope for MVP
 
@@ -52,6 +53,7 @@ AI layer:
 - Strict one-page validation.
 - Cross-platform installer.
 - Cloud sync.
+- Direct runtime tailoring from `.md`, `.txt`, `.doc`, or `.docx` master resume sources.
 
 ## MVP Milestone Exit Criteria
 
