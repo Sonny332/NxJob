@@ -60,6 +60,18 @@ const AI_PROVIDER_PRESETS = {
     model: "deepseek-chat",
     help: "Use with a DeepSeek API key."
   },
+  gemini: {
+    label: "Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-3.1-flash-lite",
+    help: "Use with a Gemini API key. Default is Flash-Lite for non-grounded resume tailoring."
+  },
+  gemini_grounded: {
+    label: "Gemini + Google Search",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.5-flash",
+    help: "Use when a workflow needs Google Search grounding. Tailor Resume does not use grounding yet."
+  },
   openrouter: {
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",

@@ -65,6 +65,17 @@ def test_openai_compatible_client_reads_json_object(monkeypatch) -> None:
         ("openai", "https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions"),
         ("deepseek", "", "https://api.deepseek.com/v1/chat/completions"),
         ("deepseek", "https://api.deepseek.com", "https://api.deepseek.com/v1/chat/completions"),
+        ("gemini", "", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"),
+        (
+            "gemini",
+            "https://generativelanguage.googleapis.com",
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
+        (
+            "gemini_grounded",
+            "",
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
         ("openrouter", "", "https://openrouter.ai/api/v1/chat/completions"),
         ("openrouter", "https://openrouter.ai", "https://openrouter.ai/api/v1/chat/completions"),
         ("custom", "https://llm.example.test/v1/chat/completions", "https://llm.example.test/v1/chat/completions"),

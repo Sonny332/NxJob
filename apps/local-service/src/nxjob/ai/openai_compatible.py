@@ -14,6 +14,8 @@ PROVIDER_DEFAULTS = {
     "openai": ("https://api.openai.com/v1", "gpt-4.1-mini"),
     "openai_compatible": ("https://api.openai.com/v1", "gpt-4.1-mini"),
     "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.1-flash-lite"),
+    "gemini_grounded": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
     "openrouter": ("https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
 }
 
@@ -103,6 +105,8 @@ def _normalized_base_url(base_url: str, provider: str = "") -> str:
     host_only_defaults = {
         "https://api.openai.com": "https://api.openai.com/v1",
         "https://api.deepseek.com": "https://api.deepseek.com/v1",
+        "https://generativelanguage.googleapis.com": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "https://generativelanguage.googleapis.com/v1beta": "https://generativelanguage.googleapis.com/v1beta/openai",
         "https://openrouter.ai": "https://openrouter.ai/api/v1",
         "https://openrouter.ai/api": "https://openrouter.ai/api/v1",
     }

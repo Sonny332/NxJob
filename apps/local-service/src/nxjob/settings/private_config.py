@@ -226,6 +226,13 @@ def _normalize_provider(provider: str) -> str:
         "openai-compatible": "openai",
         "chatgpt": "openai",
         "deepseek": "deepseek",
+        "gemini": "gemini",
+        "google": "gemini",
+        "google_gemini": "gemini",
+        "gemini_grounded": "gemini_grounded",
+        "gemini-grounded": "gemini_grounded",
+        "gemini_search": "gemini_grounded",
+        "gemini-search": "gemini_grounded",
         "openrouter": "openrouter",
         "custom": "custom",
     }

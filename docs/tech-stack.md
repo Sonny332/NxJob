@@ -9,7 +9,7 @@ NxJob MVP uses a browser extension plus a local service.
 - Database: SQLite.
 - Shared schema: JSON Schema as the source of truth, with generated TypeScript types and Python validation models.
 - Resume output: DOCX first. PDF and strict page validation are post-MVP or later M5 enhancements.
-- AI provider: OpenAI-compatible adapter. The provider must be replaceable behind one local service interface.
+- AI provider: OpenAI-compatible adapter with presets for OpenAI, DeepSeek, Gemini, OpenRouter, and custom endpoints. The provider must be replaceable behind one local service interface.
 - Phase 1 integration: REST only. MCP server is not implemented in Phase 1, but REST request and response schemas must be compatible with future MCP tools.
 
 ## Rationale
