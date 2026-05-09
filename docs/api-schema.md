@@ -221,7 +221,7 @@ Rules:
 - `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
 - When an AI provider is configured, provider failures return plugin-readable errors such as authentication failure, rate limit, network failure, timeout, provider unavailable, or invalid response. Error logs store only sanitized categories.
 - When a private Master Resume has structured `experience` entries, generated content uses role-based `experience_sections` so company, title, location, and dates remain visible.
-- AI provider config supports presets for common OpenAI-compatible services. Known provider base URLs are normalized before calling `/chat/completions`, so users can provide either the service root or full API base path.
+- AI provider config supports presets for common OpenAI-compatible services: OpenAI, DeepSeek, Gemini, OpenRouter, and custom endpoints. Known provider base URLs are normalized before calling `/chat/completions`, so users can provide either the service root or full API base path.
 - Success references are retrieved by keyword overlap and returned as ids in `used_success_references`.
 - Strict PDF/page-count validation is not part of M11; M11 uses budget checks plus basic DOCX existence validation and returns warnings.
 
