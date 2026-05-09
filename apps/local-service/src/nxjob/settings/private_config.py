@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -18,6 +19,14 @@ RESUME_OUTPUT_FILE = "resume-output.json"
 
 class PrivateConfigError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class AiProviderConfig:
+    provider: str
+    base_url: str
+    model: str
+    api_key: str
 
 
 def private_config_dir() -> Path:
@@ -91,6 +100,15 @@ def delete_ai_provider_config() -> None:
 
 
 def read_ai_provider_status() -> tuple[bool, str, str]:
+    env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
+    if env_api_key:
+        return (
+            True,
+            os.environ.get("NXJOB_AI_PROVIDER", "openai_compatible").strip()
+            or "openai_compatible",
+            os.environ.get("NXJOB_AI_MODEL", "").strip(),
+        )
+
     path = private_ai_provider_path()
     if not path.exists():
         return False, "", ""
@@ -103,6 +121,39 @@ def read_ai_provider_status() -> tuple[bool, str, str]:
 
     configured = bool(str(data.get("api_key", "")).strip())
     return configured, str(data.get("provider", "")), str(data.get("model", ""))
+
+
+def read_ai_provider_config() -> AiProviderConfig | None:
+    env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
+    if env_api_key:
+        return AiProviderConfig(
+            provider=os.environ.get("NXJOB_AI_PROVIDER", "openai_compatible").strip()
+            or "openai_compatible",
+            base_url=os.environ.get("NXJOB_AI_BASE_URL", "").strip(),
+            model=os.environ.get("NXJOB_AI_MODEL", "").strip(),
+            api_key=env_api_key,
+        )
+
+    path = private_ai_provider_path()
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    api_key = str(data.get("api_key", "")).strip()
+    if not api_key:
+        return None
+
+    return AiProviderConfig(
+        provider=str(data.get("provider", "openai_compatible")).strip() or "openai_compatible",
+        base_url=str(data.get("base_url", "")).strip(),
+        model=str(data.get("model", "")).strip(),
+        api_key=api_key,
+    )
 
 
 def configured_resume_output_dir() -> Path | None:

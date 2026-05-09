@@ -30,7 +30,9 @@ M11 Tailor Resume generates an English, ATS-friendly, one-page-first resume from
 
 ## Architecture
 
-- AI or deterministic tailoring should produce structured resume content, selected bullet ids, warnings, layout budget, and quality checks.
+- If an OpenAI-compatible provider is configured, AI tailoring produces structured resume content, selected bullet ids, warnings, layout budget, and quality checks.
+- If no AI provider is configured, deterministic local tailoring remains available for development and offline smoke tests.
 - Local service owns file naming, directory validation, DOCX rendering, Markdown writing, caching, and ResumeVersion recording.
-- Prompt logs must contain summaries and token usage only. Do not log full JD, full Master Resume, API key, or full prompt text.
+- Provider errors must be categorized into plugin-readable messages without echoing provider response bodies that could contain sensitive request data.
+- Prompt logs must contain summaries, provider/model labels, sanitized error categories, and token usage only. Do not log full JD, full Master Resume, API key, or full prompt text.
 

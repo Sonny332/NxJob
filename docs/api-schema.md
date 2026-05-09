@@ -184,7 +184,7 @@ Future MCP tool name: `tailor_resume`.
 
 Purpose: generate a tailored DOCX resume and matching Markdown file from a JD, master resume bullets, and success references.
 
-M11 implementation note: Phase 1 still supports deterministic local tailoring while preserving the future AI workflow shape. The workflow returns structured content, selected bullet ids, layout budget, quality checks, DOCX path, and Markdown path. It does not log full Master Resume, full JD, API key, or full prompt text.
+M11 implementation note: Phase 1 uses a configured OpenAI-compatible provider when one is available, and falls back to deterministic local tailoring when no AI provider is configured. The workflow returns structured content, selected bullet ids, layout budget, quality checks, DOCX path, and Markdown path. It does not log full Master Resume, full JD, API key, or full prompt text.
 
 Request:
 
@@ -219,6 +219,7 @@ Rules:
 - The default filename policy is `YYYY-MM-DD_<company>_<job-title>_resume`, with safe path characters and `_v2` suffixes for collisions.
 - Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
 - `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
+- When an AI provider is configured, provider failures return plugin-readable errors such as authentication failure, rate limit, network failure, timeout, provider unavailable, or invalid response. Error logs store only sanitized categories.
 - Success references are retrieved by keyword overlap and returned as ids in `used_success_references`.
 - Strict PDF/page-count validation is not part of M11; M11 uses budget checks plus basic DOCX existence validation and returns warnings.
 
@@ -236,6 +237,8 @@ Response:
   },
   "used_success_references": ["string"],
   "warnings": ["string"],
+  "ai_used": true,
+  "ai_provider_name": "openai_compatible",
   "docx_path": "string",
   "markdown_path": "string",
   "filename_base": "string",

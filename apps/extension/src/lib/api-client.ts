@@ -83,6 +83,8 @@ export type ResumeTailorResponse = {
   };
   used_success_references: string[];
   warnings: string[];
+  ai_used: boolean;
+  ai_provider_name: string;
   docx_path: string;
   markdown_path: string;
   filename_base: string;

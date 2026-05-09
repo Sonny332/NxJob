@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from nxjob.core.trace import new_trace_id
 from nxjob.core.workflow_cache import stable_hash, workflow_cache_key
+from nxjob.ai.openai_compatible import AiProviderError
 from nxjob.db.connection import db_session
 from nxjob.db.repositories import (
     create_prompt_log,
@@ -33,8 +34,13 @@ from nxjob.schemas.core import (
     WorkflowCacheInfo,
     WorkflowTraceRecord,
 )
-from nxjob.settings.private_config import configured_resume_output_dir
-from nxjob.workflows.resume_tailor import WORKFLOW_NAME, extract_keywords, tailor_resume_content
+from nxjob.settings.private_config import configured_resume_output_dir, read_ai_provider_config
+from nxjob.workflows.resume_tailor import (
+    WORKFLOW_NAME,
+    extract_keywords,
+    tailor_resume_content,
+    tailor_resume_content_with_ai,
+)
 
 router = APIRouter(prefix="/api/v1/resumes", tags=["resumes"])
 
@@ -54,6 +60,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
     candidate_name = payload.candidate_name or (master_resume.candidate_name if master_resume else "")
     contact_line = payload.contact_line or (master_resume.contact_line if master_resume else "")
     education = master_resume.education if master_resume else []
+    experience = master_resume.experience if master_resume else []
 
     if not master_resume_bullets:
         raise HTTPException(status_code=422, detail="master_resume_bullets is required")
@@ -74,9 +81,10 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             extract_keywords(job_lead.jd_text),
             payload.success_reference_limit,
         )
+        ai_config = read_ai_provider_config()
         cache_key = workflow_cache_key(
             WORKFLOW_NAME,
-            "v2",
+            "v3",
             {
                 "jd_hash": job_lead.jd_hash,
                 "master_resume": stable_hash(
@@ -92,6 +100,10 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                 "output_directory": str(output_dir),
                 "filename_policy": "date_company_job_resume",
                 "success_references": [reference.id for reference in success_references],
+                "ai_provider": {
+                    "provider": ai_config.provider if ai_config else "local_stub",
+                    "model": ai_config.model if ai_config else "deterministic-tailor-v1",
+                },
             },
         )
         if not payload.force_refresh:
@@ -104,14 +116,65 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                     )
 
         trace_id = new_trace_id()
-        draft = tailor_resume_content(
-            job_lead,
-            master_resume_bullets,
-            success_references,
-            candidate_name=candidate_name,
-            contact_line=contact_line,
-            education=education,
-        )
+        try:
+            if ai_config is not None:
+                draft = tailor_resume_content_with_ai(
+                    job_lead,
+                    master_resume_bullets,
+                    success_references,
+                    ai_config,
+                    candidate_name=candidate_name,
+                    contact_line=contact_line,
+                    education=education,
+                    experience=experience,
+                )
+                ai_used = True
+                provider_name = ai_config.provider
+                model_name = ai_config.model
+            else:
+                draft = tailor_resume_content(
+                    job_lead,
+                    master_resume_bullets,
+                    success_references,
+                    candidate_name=candidate_name,
+                    contact_line=contact_line,
+                    education=education,
+                )
+                ai_used = False
+                provider_name = "local_stub"
+                model_name = "deterministic-tailor-v1"
+        except AiProviderError as exc:
+            create_workflow_trace(
+                connection,
+                WorkflowTraceRecord(
+                    trace_id=trace_id,
+                    workflow_name=WORKFLOW_NAME,
+                    created_at=utc_now(),
+                    input_summary=(
+                        f"job_lead_id={payload.job_lead_id}; "
+                        f"bullets={len(master_resume_bullets)}; "
+                        f"success_reference_limit={payload.success_reference_limit}"
+                    ),
+                    output_summary=exc.category,
+                    status="failed",
+                ),
+            )
+            create_prompt_log(
+                connection,
+                PromptLogCreate(
+                    trace_id=trace_id,
+                    workflow_name=WORKFLOW_NAME,
+                    input_summary=f"JD keywords only; {len(master_resume_bullets)} master bullets",
+                    model=ai_config.model if ai_config is not None else "",
+                    provider=ai_config.provider if ai_config is not None else "openai_compatible",
+                    token_usage={},
+                    output_summary="",
+                    error=exc.category,
+                ),
+            )
+            connection.commit()
+            raise HTTPException(status_code=exc.status_code, detail=exc.user_message) from exc
+
         filename_base, output_path, markdown_path = _resume_output_paths(job_lead, output_dir)
         render_resume_docx(draft.content, output_path)
         markdown_path.write_text(draft.markdown, encoding="utf-8")
@@ -138,8 +201,8 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                 trace_id=trace_id,
                 workflow_name=WORKFLOW_NAME,
                 input_summary=f"JD keywords only; {len(master_resume_bullets)} master bullets",
-                model="deterministic-tailor-v1",
-                provider="local_stub",
+                model=model_name,
+                provider=provider_name,
                 token_usage=draft.token_usage,
                 output_summary=draft.change_summary,
             ),
@@ -179,6 +242,8 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
         resume_version=resume_version,
         used_success_references=[reference.id for reference in success_references],
         warnings=warnings,
+        ai_used=ai_used,
+        ai_provider_name=provider_name,
         docx_path=str(output_path),
         markdown_path=str(markdown_path),
         filename_base=filename_base,
