@@ -10,6 +10,12 @@ from nxjob.settings.private_config import AiProviderConfig
 
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+PROVIDER_DEFAULTS = {
+    "openai": ("https://api.openai.com/v1", "gpt-4.1-mini"),
+    "openai_compatible": ("https://api.openai.com/v1", "gpt-4.1-mini"),
+    "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
+    "openrouter": ("https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
+}
 
 
 @dataclass(frozen=True)
@@ -33,13 +39,13 @@ def request_json_object(
     messages: list[dict[str, str]],
     timeout_seconds: int = 60,
 ) -> AiJsonResult:
-    model = config.model.strip()
+    model = config.model.strip() or _default_model(config.provider)
     if not model:
         raise AiProviderError("invalid_config", "AI model is not configured.", 422)
     if not config.api_key.strip():
         raise AiProviderError("missing_key", "AI API key is not configured.", 422)
 
-    endpoint = _chat_completions_endpoint(config.base_url)
+    endpoint = _chat_completions_endpoint(config.base_url, config.provider)
     payload = {
         "model": model,
         "messages": messages,
@@ -85,11 +91,30 @@ def request_json_object(
     )
 
 
-def _chat_completions_endpoint(base_url: str) -> str:
-    normalized = (base_url.strip() or DEFAULT_BASE_URL).rstrip("/")
+def _chat_completions_endpoint(base_url: str, provider: str = "") -> str:
+    normalized = _normalized_base_url(base_url, provider)
     if normalized.endswith("/chat/completions"):
         return normalized
     return f"{normalized}/chat/completions"
+
+
+def _normalized_base_url(base_url: str, provider: str = "") -> str:
+    normalized = (base_url.strip() or _default_base_url(provider)).rstrip("/")
+    host_only_defaults = {
+        "https://api.openai.com": "https://api.openai.com/v1",
+        "https://api.deepseek.com": "https://api.deepseek.com/v1",
+        "https://openrouter.ai": "https://openrouter.ai/api/v1",
+        "https://openrouter.ai/api": "https://openrouter.ai/api/v1",
+    }
+    return host_only_defaults.get(normalized, normalized)
+
+
+def _default_base_url(provider: str) -> str:
+    return PROVIDER_DEFAULTS.get(provider.strip().lower(), (DEFAULT_BASE_URL, ""))[0]
+
+
+def _default_model(provider: str) -> str:
+    return PROVIDER_DEFAULTS.get(provider.strip().lower(), ("", ""))[1]
 
 
 def _message_content(response_data: dict[str, Any]) -> str:
@@ -110,4 +135,10 @@ def _http_error(exc: HTTPError) -> AiProviderError:
         return AiProviderError("rate_limited", "AI provider rate limit was reached.", 429)
     if 500 <= exc.code <= 599:
         return AiProviderError("provider_unavailable", "AI provider is temporarily unavailable.", 502)
+    if exc.code == 404:
+        return AiProviderError(
+            "endpoint_not_found",
+            "AI provider endpoint was not found. Choose a preset provider or check the Base URL.",
+            502,
+        )
     return AiProviderError("provider_error", f"AI provider returned HTTP {exc.code}.", 502)

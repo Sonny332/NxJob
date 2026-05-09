@@ -12,6 +12,7 @@ Do not commit these files or directories:
 - Local SQLite databases.
 - Prompt logs containing private resume or job application content.
 - Real application records, recruiter replies, or interview notes.
+- AI provider API keys and private provider config files.
 
 ## Repository-Safe Content
 
@@ -34,3 +35,5 @@ Current local MVP setup may place the user's real master resume at `private/mast
 NxJob should later provide a helper skill or UI flow that converts a normal resume into the structured master resume format. That generated file still belongs to local private storage unless the user explicitly exports it.
 
 The runtime should continue to use validated JSON as the canonical master resume format. Uploaded `.md`, `.txt`, `.doc`, or `.docx` resumes are import sources only; they should be converted, reviewed, and saved under local private config before use.
+
+AI provider presets, base URLs, model names, and API keys are stored by the local service in private config. API keys must not appear in GitHub, release packages, PromptLog, or plugin-visible error details.

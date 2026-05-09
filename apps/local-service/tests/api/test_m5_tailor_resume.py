@@ -143,7 +143,7 @@ def test_tailor_resume_uses_configured_ai_provider_without_logging_private_input
     assert response.status_code == 200
     body = response.json()
     assert body["ai_used"] is True
-    assert body["ai_provider_name"] == "openai_compatible"
+    assert body["ai_provider_name"] == "openai"
 
     with sqlite3.connect(db_path) as connection:
         prompt_row = connection.execute(
@@ -156,7 +156,7 @@ def test_tailor_resume_uses_configured_ai_provider_without_logging_private_input
         ).fetchone()
 
     serialized_prompt_row = " ".join(str(value) for value in prompt_row)
-    assert prompt_row[0] == "openai_compatible"
+    assert prompt_row[0] == "openai"
     assert prompt_row[1] == "test-tailor-model"
     assert json.loads(prompt_row[4])["total_tokens"] == 180
     assert "sk-private-test-key" not in serialized_prompt_row

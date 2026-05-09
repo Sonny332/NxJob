@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 import pytest
 
 from nxjob.ai.openai_compatible import AiProviderError, request_json_object
+from nxjob.ai.openai_compatible import _chat_completions_endpoint
 from nxjob.settings.private_config import AiProviderConfig
 
 
@@ -57,10 +58,32 @@ def test_openai_compatible_client_reads_json_object(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
+    ("provider", "base_url", "endpoint"),
+    [
+        ("openai", "", "https://api.openai.com/v1/chat/completions"),
+        ("openai", "https://api.openai.com", "https://api.openai.com/v1/chat/completions"),
+        ("openai", "https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions"),
+        ("deepseek", "", "https://api.deepseek.com/v1/chat/completions"),
+        ("deepseek", "https://api.deepseek.com", "https://api.deepseek.com/v1/chat/completions"),
+        ("openrouter", "", "https://openrouter.ai/api/v1/chat/completions"),
+        ("openrouter", "https://openrouter.ai", "https://openrouter.ai/api/v1/chat/completions"),
+        ("custom", "https://llm.example.test/v1/chat/completions", "https://llm.example.test/v1/chat/completions"),
+    ],
+)
+def test_chat_completions_endpoint_normalizes_common_provider_base_urls(
+    provider,
+    base_url,
+    endpoint,
+) -> None:
+    assert _chat_completions_endpoint(base_url, provider) == endpoint
+
+
+@pytest.mark.parametrize(
     ("status_code", "category", "public_status"),
     [
         (401, "authentication_failed", 401),
         (429, "rate_limited", 429),
+        (404, "endpoint_not_found", 502),
         (503, "provider_unavailable", 502),
     ],
 )

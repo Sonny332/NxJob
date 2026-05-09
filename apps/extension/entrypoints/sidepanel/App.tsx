@@ -47,6 +47,35 @@ const FEEDBACK_LABELS: Record<ResumeFeedbackRating, string> = {
   success_reference_candidate: "Save as success reference candidate"
 };
 
+const AI_PROVIDER_PRESETS = {
+  openai: {
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    help: "Recommended for most users with an OpenAI API key."
+  },
+  deepseek: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+    help: "Use with a DeepSeek API key."
+  },
+  openrouter: {
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4.1-mini",
+    help: "Use with an OpenRouter API key and model route."
+  },
+  custom: {
+    label: "Custom OpenAI-compatible",
+    baseUrl: "",
+    model: "",
+    help: "For advanced users with a compatible /chat/completions endpoint."
+  }
+} as const;
+
+type AiProviderPresetKey = keyof typeof AI_PROVIDER_PRESETS;
+
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
   const [config, setConfig] = useState<ConfigStatusResponse | null>(null);
@@ -54,9 +83,9 @@ export function App() {
   const [pageContext, setPageContext] = useState<PageContext | null>(null);
   const [message, setMessage] = useState("Ready.");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiProvider, setApiProvider] = useState("openai_compatible");
-  const [apiBaseUrl, setApiBaseUrl] = useState("");
-  const [apiModel, setApiModel] = useState("");
+  const [apiProvider, setApiProvider] = useState<AiProviderPresetKey>("openai");
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>(AI_PROVIDER_PRESETS.openai.baseUrl);
+  const [apiModel, setApiModel] = useState<string>(AI_PROVIDER_PRESETS.openai.model);
   const [apiKey, setApiKey] = useState("");
   const [resumeOutputDir, setResumeOutputDir] = useState("");
 
@@ -244,6 +273,13 @@ export function App() {
     }
   }
 
+  function selectAiProvider(provider: AiProviderPresetKey) {
+    const preset = AI_PROVIDER_PRESETS[provider];
+    setApiProvider(provider);
+    setApiBaseUrl(preset.baseUrl);
+    setApiModel(preset.model);
+  }
+
   async function clearApiKey() {
     try {
       const status = await clearAiProvider();
@@ -387,8 +423,15 @@ export function App() {
             </label>
 
             <label>
-              <span>Provider</span>
-              <input value={apiProvider} onChange={(event) => setApiProvider(event.target.value)} />
+              <span>AI Service</span>
+              <select value={apiProvider} onChange={(event) => selectAiProvider(event.target.value as AiProviderPresetKey)}>
+                {(Object.keys(AI_PROVIDER_PRESETS) as AiProviderPresetKey[]).map((key) => (
+                  <option key={key} value={key}>
+                    {AI_PROVIDER_PRESETS[key].label}
+                  </option>
+                ))}
+              </select>
+              <small>{AI_PROVIDER_PRESETS[apiProvider].help}</small>
             </label>
             <label>
               <span>Base URL</span>
@@ -397,6 +440,7 @@ export function App() {
             <label>
               <span>Model</span>
               <input value={apiModel} onChange={(event) => setApiModel(event.target.value)} />
+              <small>Preset default is filled automatically. Advanced users may override it.</small>
             </label>
             <label>
               <span>API Key</span>
