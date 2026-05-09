@@ -82,8 +82,9 @@ def save_ai_provider_config(payload: AiProviderConfigUpdate) -> None:
     if not api_key:
         raise PrivateConfigError("AI API key is required.")
 
+    provider = _normalize_provider(payload.provider)
     data = {
-        "provider": payload.provider.strip() or "openai_compatible",
+        "provider": provider,
         "base_url": payload.base_url.strip(),
         "model": payload.model.strip(),
         "api_key": api_key,
@@ -120,15 +121,14 @@ def read_ai_provider_status() -> tuple[bool, str, str]:
         return False, "", ""
 
     configured = bool(str(data.get("api_key", "")).strip())
-    return configured, str(data.get("provider", "")), str(data.get("model", ""))
+    return configured, _normalize_provider(str(data.get("provider", ""))), str(data.get("model", ""))
 
 
 def read_ai_provider_config() -> AiProviderConfig | None:
     env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
     if env_api_key:
         return AiProviderConfig(
-            provider=os.environ.get("NXJOB_AI_PROVIDER", "openai_compatible").strip()
-            or "openai_compatible",
+            provider=_normalize_provider(os.environ.get("NXJOB_AI_PROVIDER", "openai")),
             base_url=os.environ.get("NXJOB_AI_BASE_URL", "").strip(),
             model=os.environ.get("NXJOB_AI_MODEL", "").strip(),
             api_key=env_api_key,
@@ -149,7 +149,7 @@ def read_ai_provider_config() -> AiProviderConfig | None:
         return None
 
     return AiProviderConfig(
-        provider=str(data.get("provider", "openai_compatible")).strip() or "openai_compatible",
+        provider=_normalize_provider(str(data.get("provider", ""))),
         base_url=str(data.get("base_url", "")).strip(),
         model=str(data.get("model", "")).strip(),
         api_key=api_key,
@@ -216,3 +216,17 @@ def _write_private_json(path: Path, data: dict[str, object]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     if os.name != "nt":
         path.chmod(0o600)
+
+
+def _normalize_provider(provider: str) -> str:
+    value = provider.strip().lower()
+    aliases = {
+        "": "openai",
+        "openai_compatible": "openai",
+        "openai-compatible": "openai",
+        "chatgpt": "openai",
+        "deepseek": "deepseek",
+        "openrouter": "openrouter",
+        "custom": "custom",
+    }
+    return aliases.get(value, value)
