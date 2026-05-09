@@ -162,12 +162,21 @@ class ResumeTailorConstraints(BaseModel):
     ats_friendly: bool = True
 
 
+class TailoredExperienceSection(BaseModel):
+    company: str = ""
+    location: str = ""
+    title: str = ""
+    date_range: str = ""
+    bullets: list[str] = Field(default_factory=list)
+
+
 class TailoredResumeContent(BaseModel):
     candidate_name: str = "Candidate"
     contact_line: str = ""
     headline: str = "Tailored Resume"
     summary: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    experience_sections: list[TailoredExperienceSection] = Field(default_factory=list)
     experience_bullets: list[str] = Field(default_factory=list)
     education: list[str] = Field(default_factory=list)
     markdown: str = ""

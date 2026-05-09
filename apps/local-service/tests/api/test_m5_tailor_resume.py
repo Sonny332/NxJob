@@ -315,6 +315,77 @@ def test_tailor_resume_includes_education_years_from_master_resume(tmp_path, mon
     assert "3.62 / 4.0" in markdown
 
 
+def test_tailor_resume_preserves_structured_experience_timeline(tmp_path, monkeypatch) -> None:
+    master_path = tmp_path / "master-resume.json"
+    master_path.write_text(
+        json.dumps(
+            {
+                "id": "master_default",
+                "candidate_name": "Xu (Sonny) Shen",
+                "contact_line": "Boston, MA | sonnyshen332@gmail.com",
+                "experience": [
+                    {
+                        "company": "BostonRen LLC",
+                        "location": "Boston, MA",
+                        "title": "Operations Analyst",
+                        "start_date": "2024",
+                        "end_date": "Present",
+                        "bullets": [
+                            {
+                                "id": "exp_current_api",
+                                "text": "Automated Python API workflows for operations reporting and issue tracking.",
+                                "tags": ["Python", "API", "operations"],
+                            }
+                        ],
+                    },
+                    {
+                        "company": "Earlier Energy Co",
+                        "location": "Shanghai, China",
+                        "title": "Project Engineer",
+                        "start_date": "2020",
+                        "end_date": "2024",
+                        "bullets": [
+                            {
+                                "id": "exp_prior_controls",
+                                "text": "Supported field engineering coordination for facility controls projects.",
+                                "tags": ["engineering", "controls"],
+                            }
+                        ],
+                    },
+                ],
+                "education": [
+                    {
+                        "school": "Northeastern University",
+                        "degree": "M.S. in Energy Systems Engineering",
+                        "location": "Boston, MA",
+                        "start_year": "2018",
+                        "end_year": "2020",
+                        "gpa": "3.62 / 4.0",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Python API operations analyst role.")
+        response = client.post("/api/v1/resumes/tailor", json={"job_lead_id": job_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quality_checks"]["experience_timeline_preserved"] is True
+    markdown = Path(body["markdown_path"]).read_text(encoding="utf-8")
+    assert "BostonRen LLC | Boston, MA | Operations Analyst | 2024 - Present" in markdown
+    assert "Earlier Energy Co | Shanghai, China | Project Engineer | 2020 - 2024" in markdown
+    paragraphs = [paragraph.text for paragraph in Document(body["docx_path"]).paragraphs]
+    assert any("BostonRen LLC" in paragraph and "2024 - Present" in paragraph for paragraph in paragraphs)
+    assert any("Earlier Energy Co" in paragraph and "2020 - 2024" in paragraph for paragraph in paragraphs)
+
+
 def test_tailor_resume_requires_configured_output_directory(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
     monkeypatch.delenv("NXJOB_GENERATED_RESUME_DIR", raising=False)

@@ -9,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.shared import RGBColor
 from docx.shared import Inches, Pt
 
-from nxjob.schemas.core import TailoredResumeContent
+from nxjob.schemas.core import TailoredExperienceSection, TailoredResumeContent
 
 
 def render_resume_docx(content: TailoredResumeContent, output_path: Path) -> Path:
@@ -49,7 +49,10 @@ def render_resume_docx(content: TailoredResumeContent, output_path: Path) -> Pat
     _add_section(document, "PROFESSIONAL SUMMARY", content.summary, bullet=False)
     if content.skills:
         _add_section(document, "CORE QUALIFICATIONS / TECHNICAL SKILLS", [", ".join(content.skills)], bullet=False)
-    _add_section(document, "PROFESSIONAL EXPERIENCE", content.experience_bullets, bullet=True)
+    if content.experience_sections:
+        _add_experience_section(document, content.experience_sections)
+    else:
+        _add_section(document, "PROFESSIONAL EXPERIENCE", content.experience_bullets, bullet=True)
     if content.education:
         _add_section(document, "EDUCATION", content.education, bullet=False)
 
@@ -74,6 +77,38 @@ def _add_section(document: Document, heading: str, lines: list[str], bullet: boo
             _format_run(prefix, size=9, bold=False)
         run = item.add_run(line)
         _format_run(run, size=9, bold=False)
+
+
+def _add_experience_section(document: Document, sections: list[TailoredExperienceSection]) -> None:
+    paragraph = document.add_paragraph()
+    _add_section_heading(paragraph, "PROFESSIONAL EXPERIENCE")
+    for section in sections:
+        header = document.add_paragraph(style=None)
+        header.paragraph_format.space_before = Pt(1)
+        header.paragraph_format.space_after = Pt(0)
+        header.paragraph_format.line_spacing = 1
+        run = header.add_run(_experience_header_line(section))
+        _format_run(run, size=9.3, bold=True)
+
+        for line in section.bullets:
+            item = document.add_paragraph(style=None)
+            item.paragraph_format.space_before = Pt(0)
+            item.paragraph_format.space_after = Pt(0)
+            item.paragraph_format.line_spacing = 1
+            item.paragraph_format.left_indent = Inches(0.18)
+            item.paragraph_format.first_line_indent = Inches(-0.12)
+            prefix = item.add_run("· ")
+            _format_run(prefix, size=9, bold=False)
+            run = item.add_run(line)
+            _format_run(run, size=9, bold=False)
+
+
+def _experience_header_line(section: TailoredExperienceSection) -> str:
+    role = " | ".join(part for part in [section.company, section.location] if part.strip())
+    title = " | ".join(part for part in [section.title, section.date_range] if part.strip())
+    if role and title:
+        return f"{role} | {title}"
+    return role or title
 
 
 def _add_section_heading(paragraph, heading: str) -> None:

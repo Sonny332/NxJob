@@ -56,7 +56,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     master_resume_id = master_resume.id if master_resume else payload.master_resume_id
-    master_resume_bullets = master_resume.bullets if master_resume else payload.master_resume_bullets
+    master_resume_bullets = _master_resume_bullets(master_resume) if master_resume else payload.master_resume_bullets
     candidate_name = payload.candidate_name or (master_resume.candidate_name if master_resume else "")
     contact_line = payload.contact_line or (master_resume.contact_line if master_resume else "")
     education = master_resume.education if master_resume else []
@@ -94,6 +94,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                         "contact_line": contact_line,
                         "bullets": [bullet.model_dump() for bullet in master_resume_bullets],
                         "education": [item.model_dump() for item in education],
+                        "experience": [item.model_dump() for item in experience],
                     }
                 ),
                 "constraints": payload.constraints.model_dump(),
@@ -139,6 +140,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                     candidate_name=candidate_name,
                     contact_line=contact_line,
                     education=education,
+                    experience=experience,
                 )
                 ai_used = False
                 provider_name = "local_stub"
@@ -292,6 +294,13 @@ def _resolve_output_dir(override: str = "") -> Path:
     except OSError as exc:
         raise ValueError(f"Resume output folder is not writable: {output_dir}") from exc
     return output_dir
+
+
+def _master_resume_bullets(master_resume) -> list:
+    bullets = list(master_resume.bullets)
+    for experience in master_resume.experience:
+        bullets.extend(experience.bullets)
+    return bullets
 
 
 def _resume_output_paths(job_lead, output_dir: Path) -> tuple[str, Path, Path]:

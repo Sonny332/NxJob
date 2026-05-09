@@ -220,6 +220,7 @@ Rules:
 - Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
 - `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
 - When an AI provider is configured, provider failures return plugin-readable errors such as authentication failure, rate limit, network failure, timeout, provider unavailable, or invalid response. Error logs store only sanitized categories.
+- When a private Master Resume has structured `experience` entries, generated content uses role-based `experience_sections` so company, title, location, and dates remain visible.
 - Success references are retrieved by keyword overlap and returned as ids in `used_success_references`.
 - Strict PDF/page-count validation is not part of M11; M11 uses budget checks plus basic DOCX existence validation and returns warnings.
 
@@ -252,7 +253,8 @@ Response:
   "quality_checks": {
     "one_page_budget_ok": true,
     "education_years_present": true,
-    "summary_avoids_fixed_year_count": true
+    "summary_avoids_fixed_year_count": true,
+    "experience_timeline_preserved": true
   }
 }
 ```

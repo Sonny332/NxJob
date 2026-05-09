@@ -16,6 +16,7 @@ from nxjob.schemas.core import (
     MasterResumeExperience,
     SuccessReferenceRecord,
     TailoredResumeContent,
+    TailoredExperienceSection,
 )
 from nxjob.settings.private_config import AiProviderConfig
 
@@ -55,6 +56,7 @@ def tailor_resume_content(
     candidate_name: str = "Candidate",
     contact_line: str = "",
     education: list[MasterResumeEducation] | None = None,
+    experience: list[MasterResumeExperience] | None = None,
 ) -> TailorDraft:
     jd_keywords = extract_keywords(job_lead.jd_text)
     success_keywords = [
@@ -75,6 +77,7 @@ def tailor_resume_content(
     summary = _summary_from_keywords(jd_keywords, skills)
     headline = _headline_from_job(job_lead)
     education_lines = _education_lines(education or [])
+    experience_sections = _experience_sections(experience or [], jd_keywords, success_keywords)
     warnings = _quality_warnings(education_lines)
     content = TailoredResumeContent(
         candidate_name=candidate_name or "Candidate",
@@ -82,6 +85,7 @@ def tailor_resume_content(
         headline=headline,
         summary=summary,
         skills=skills,
+        experience_sections=experience_sections,
         experience_bullets=[_fit_bullet_line(bullet.text) for bullet in selected],
         education=education_lines,
     )
@@ -92,6 +96,7 @@ def tailor_resume_content(
         "education_years_present": bool(education_lines)
         and all(_contains_year_range(line) for line in education_lines),
         "summary_avoids_fixed_year_count": not any(re.search(r"\b\d+\+?\s+years?\b", line, re.I) for line in summary),
+        "experience_timeline_preserved": _timeline_preserved(experience_sections),
         "renderer_uses_black_arial_template": True,
         "markdown_generated_from_same_content": True,
     }
@@ -132,6 +137,7 @@ def tailor_resume_content_with_ai(
         candidate_name=candidate_name,
         contact_line=contact_line,
         education=education,
+        experience=experience,
     )
     result = request_json_object(
         ai_config,
@@ -222,6 +228,44 @@ def _fit_bullet_line(text: str, target_chars: int = 112) -> str:
     return f"{clipped}."
 
 
+def _experience_sections(
+    experience: list[MasterResumeExperience],
+    jd_keywords: list[str],
+    success_keywords: list[str],
+) -> list[TailoredExperienceSection]:
+    sections: list[TailoredExperienceSection] = []
+    for item in experience:
+        ranked = sorted(
+            item.bullets,
+            key=lambda bullet: _bullet_score(bullet, jd_keywords, success_keywords),
+            reverse=True,
+        )
+        selected = [bullet for bullet in ranked if _bullet_score(bullet, jd_keywords, success_keywords) > 0][:3]
+        if not selected:
+            selected = ranked[:1]
+        date_range = _date_range(item.start_date, item.end_date)
+        bullets = [_fit_bullet_line(bullet.text) for bullet in selected if bullet.text.strip()]
+        if item.company.strip() or item.title.strip() or date_range or bullets:
+            sections.append(
+                TailoredExperienceSection(
+                    company=item.company.strip(),
+                    location=item.location.strip(),
+                    title=item.title.strip(),
+                    date_range=date_range,
+                    bullets=bullets,
+                )
+            )
+    return sections
+
+
+def _date_range(start_date: str, end_date: str) -> str:
+    start = start_date.strip()
+    end = end_date.strip()
+    if start and end:
+        return f"{start} - {end}"
+    return start or end
+
+
 def _education_lines(education: list[MasterResumeEducation]) -> list[str]:
     lines = []
     for item in education:
@@ -258,6 +302,16 @@ def _quality_warnings(education_lines: list[str]) -> list[str]:
     return warnings
 
 
+def _timeline_preserved(sections: list[TailoredExperienceSection]) -> bool:
+    return all(
+        section.company.strip()
+        and section.title.strip()
+        and section.date_range.strip()
+        and bool(section.bullets)
+        for section in sections
+    )
+
+
 def estimate_layout_budget(content: TailoredResumeContent) -> dict[str, int]:
     heading_lines = 3
     if content.education:
@@ -268,7 +322,12 @@ def estimate_layout_budget(content: TailoredResumeContent) -> dict[str, int]:
         body_lines += _line_count(content.contact_line, 118)
     body_lines += sum(_line_count(line, 118) for line in content.summary)
     body_lines += _line_count(", ".join(content.skills), 118) if content.skills else 0
-    body_lines += sum(_line_count(line, 112) for line in content.experience_bullets)
+    if content.experience_sections:
+        for section in content.experience_sections:
+            body_lines += _line_count(_experience_header_line(section), 118)
+            body_lines += sum(_line_count(line, 112) for line in section.bullets)
+    else:
+        body_lines += sum(_line_count(line, 112) for line in content.experience_bullets)
     body_lines += sum(_line_count(line, 118) for line in content.education)
 
     return {
@@ -299,7 +358,12 @@ def render_tailored_resume_markdown(content: TailoredResumeContent) -> str:
     if content.skills:
         lines.extend(["", "## CORE QUALIFICATIONS / TECHNICAL SKILLS", ", ".join(content.skills)])
 
-    if content.experience_bullets:
+    if content.experience_sections:
+        lines.extend(["", "## PROFESSIONAL EXPERIENCE"])
+        for section in content.experience_sections:
+            lines.append(f"**{_experience_header_line(section)}**")
+            lines.extend(f"- {bullet}" for bullet in section.bullets)
+    elif content.experience_bullets:
         lines.extend(["", "## PROFESSIONAL EXPERIENCE"])
         lines.extend(f"- {bullet}" for bullet in content.experience_bullets)
 
@@ -308,6 +372,14 @@ def render_tailored_resume_markdown(content: TailoredResumeContent) -> str:
         lines.extend(content.education)
 
     return "\n".join(lines).strip() + "\n"
+
+
+def _experience_header_line(section: TailoredExperienceSection) -> str:
+    role = " | ".join(part for part in [section.company, section.location] if part.strip())
+    title = " | ".join(part for part in [section.title, section.date_range] if part.strip())
+    if role and title:
+        return f"{role} | {title}"
+    return role or title
 
 
 def _ai_messages(
@@ -336,6 +408,15 @@ def _ai_messages(
                 "headline": "string",
                 "summary": ["string"],
                 "skills": ["string"],
+                "experience_sections": [
+                    {
+                        "company": "string",
+                        "location": "string",
+                        "title": "string",
+                        "date_range": "string",
+                        "bullets": ["string"],
+                    }
+                ],
                 "experience_bullets": ["string"],
                 "education": ["string"],
             },
@@ -390,6 +471,9 @@ def _ai_messages(
         ],
         "local_baseline": {
             "selected_bullet_ids": local_baseline.selected_bullet_ids,
+            "experience_sections": [
+                section.model_dump() for section in local_baseline.content.experience_sections
+            ],
             "layout_budget": local_baseline.layout_budget,
             "quality_checks": local_baseline.quality_checks,
         },
@@ -432,6 +516,7 @@ def _draft_from_ai_payload(
         "summary_avoids_fixed_year_count": not any(
             re.search(r"\b\d+\+?\s+years?\b", line, re.I) for line in content.summary
         ),
+        "experience_timeline_preserved": _timeline_preserved(content.experience_sections),
         "truthful_to_master_resume": bool(payload.get("quality_checks", {}).get("truthful_to_master_resume", True))
         if isinstance(payload.get("quality_checks"), dict)
         else True,
@@ -442,6 +527,8 @@ def _draft_from_ai_payload(
         warnings.append("AI output is above the estimated one-page budget; review DOCX before submitting.")
     if not quality_checks["summary_avoids_fixed_year_count"]:
         warnings.append("AI output includes a numeric experience year count; verify the calculation.")
+    if content.experience_sections and not quality_checks["experience_timeline_preserved"]:
+        warnings.append("One or more experience sections are missing company, title, date range, or bullets.")
 
     return TailorDraft(
         content=content.model_copy(update={"markdown": markdown}),
