@@ -683,6 +683,10 @@ function ResumeResult(props: {
         <span>Layout budget</span>
         <p>{layoutBudgetText(result.layout_budget)}</p>
       </div>
+      <div className="compact-list">
+        <span>Quality checks</span>
+        <p>{qualityCheckText(result.quality_checks)}</p>
+      </div>
       {result.warnings.length > 0 ? (
         <ul>
           {result.warnings.map((warning) => (
@@ -778,8 +782,21 @@ function sponsorshipLabel(status: SponsorshipStatus): string {
 function layoutBudgetText(layoutBudget: Record<string, unknown>): string {
   const body = layoutBudget.body_lines;
   const maxBody = layoutBudget.max_body_lines;
+  const targetMin = layoutBudget.target_min_body_lines;
+  if (typeof body === "number" && typeof maxBody === "number" && typeof targetMin === "number") {
+    return `${body}/${maxBody} estimated body lines, target ${targetMin}-${maxBody}`;
+  }
   if (typeof body === "number" && typeof maxBody === "number") {
     return `${body}/${maxBody} estimated body lines`;
   }
   return "Not available";
+}
+
+function qualityCheckText(qualityChecks: Record<string, unknown>): string {
+  const checks = [
+    qualityChecks.page_fill_target_met === true ? "page fill ok" : "",
+    qualityChecks.contact_line_single_line === true ? "contact one line" : "",
+    qualityChecks.education_years_present === true ? "education years ok" : "",
+  ].filter(Boolean);
+  return checks.join(" · ") || "Not available";
 }
