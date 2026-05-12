@@ -292,7 +292,8 @@ def _year_range(start_year: str, end_year: str) -> str:
 
 
 def _contains_year_range(line: str) -> bool:
-    return bool(re.search(r"\b(19|20)\d{2}\s*-\s*((19|20)\d{2}|Present)\b", line))
+    normalized = line.replace("–", "-").replace("—", "-").replace("−", "-")
+    return bool(re.search(r"\b(19|20)\d{2}\s*-\s*((19|20)\d{2}|Present)\b", normalized))
 
 
 def _quality_warnings(education_lines: list[str]) -> list[str]:
@@ -494,6 +495,8 @@ def _draft_from_ai_payload(
     except ValidationError as exc:
         raise AiProviderError("invalid_response", "AI resume content did not match the expected schema.") from exc
 
+    fit_warnings: list[str]
+    content, fit_warnings = _fit_content_to_one_page_budget(content)
     markdown = render_tailored_resume_markdown(content)
     layout_budget = estimate_layout_budget(content)
     selected_bullet_ids = [
@@ -509,6 +512,7 @@ def _draft_from_ai_payload(
         for value in payload.get("warnings", [])
         if isinstance(value, str) and value.strip()
     ]
+    warnings.extend(fit_warnings)
     quality_checks = {
         "one_page_budget_ok": layout_budget["body_lines"] <= 55 and layout_budget["heading_lines"] <= 5,
         "education_years_present": bool(content.education)
@@ -541,6 +545,44 @@ def _draft_from_ai_payload(
         quality_checks=quality_checks,
         warnings=warnings,
     )
+
+
+def _fit_content_to_one_page_budget(
+    content: TailoredResumeContent,
+) -> tuple[TailoredResumeContent, list[str]]:
+    budget = estimate_layout_budget(content)
+    if budget["body_lines"] <= 55 and budget["heading_lines"] <= 5:
+        return content, []
+
+    warnings: list[str] = []
+    adjusted = content
+
+    if len(adjusted.skills) > 18:
+        adjusted = adjusted.model_copy(update={"skills": adjusted.skills[:18]})
+        warnings.append("Trimmed skill keywords to reduce one-page overflow risk.")
+
+    sections = list(adjusted.experience_sections)
+    removed_bullets = 0
+    while sections and estimate_layout_budget(adjusted)["body_lines"] > 55:
+        changed = False
+        for index in range(len(sections) - 1, -1, -1):
+            section = sections[index]
+            if len(section.bullets) <= 1:
+                continue
+            sections[index] = section.model_copy(update={"bullets": section.bullets[:-1]})
+            adjusted = adjusted.model_copy(update={"experience_sections": sections})
+            removed_bullets += 1
+            changed = True
+            break
+        if not changed:
+            break
+
+    if removed_bullets:
+        warnings.append(
+            f"Compressed {removed_bullets} lower-priority bullet(s) to fit the one-page budget."
+        )
+
+    return adjusted, warnings
 
 
 def _compact_json(data: dict[str, Any]) -> str:

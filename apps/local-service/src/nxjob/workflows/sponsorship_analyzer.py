@@ -34,7 +34,7 @@ EXPLICIT_NEGATIVE_RULES = [
     ),
     Rule(
         re.compile(
-            r"\b(no\s+visa\s+sponsorship|sponsorship\s+(is\s+)?not\s+available)\b",
+            r"\b(no\s+visa\s+sponsorship|(?:visa\s+)?sponsorship\s+(is\s+)?not\s+available|not\s+eligible\s+for\s+(?:visa\s+)?sponsorship)\b",
             re.IGNORECASE,
         ),
         "does_not_support",

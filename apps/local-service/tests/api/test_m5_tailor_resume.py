@@ -10,8 +10,13 @@ from fastapi.testclient import TestClient
 from nxjob.ai.openai_compatible import AiProviderError
 from nxjob.db.repositories import new_id, utc_now
 from nxjob.main import create_app
-from nxjob.schemas.core import TailoredResumeContent
-from nxjob.workflows.resume_tailor import TailorDraft
+from nxjob.schemas.core import TailoredExperienceSection, TailoredResumeContent
+from nxjob.workflows.resume_tailor import (
+    TailorDraft,
+    _contains_year_range,
+    _fit_content_to_one_page_budget,
+    estimate_layout_budget,
+)
 
 
 def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) -> None:
@@ -84,6 +89,47 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert prompt_row[0] == "local_stub"
     assert json.loads(prompt_row[1])["input_chars"] > 0
     assert resume_row[0] == "tailored"
+
+
+def test_tailor_resume_accepts_en_dash_education_years() -> None:
+    assert _contains_year_range("Northeastern University, Boston, MA, 2018 – 2020")
+
+
+def test_tailor_resume_compacts_ai_output_to_one_page_budget() -> None:
+    content = TailoredResumeContent(
+        candidate_name="Candidate",
+        contact_line="Boston, MA | candidate@example.com",
+        headline="Sustainability Analyst",
+        summary=[
+            "Analytical sustainability professional focused on energy, emissions, and reporting.",
+            "Experienced in dashboards, financial modeling, and cross-functional implementation.",
+        ],
+        skills=[f"Skill {index}" for index in range(30)],
+        experience_sections=[
+            TailoredExperienceSection(
+                company=f"Company {section}",
+                location="Boston, MA",
+                title="Analyst",
+                date_range="2020 - Present",
+                bullets=[
+                    f"Built detailed analytical workflow and reporting artifact number {item} for energy, emissions, and operational decision support."
+                    for item in range(8)
+                ],
+            )
+            for section in range(6)
+        ],
+        experience_bullets=[],
+        education=[
+            "M.S. in Energy Systems Engineering, Northeastern University, Boston, MA, 2018 – 2020",
+            "B.Eng. in Thermal Energy and Power Engineering, China University of Petroleum, Beijing, China, 2011 – 2015",
+        ],
+    )
+
+    adjusted, warnings = _fit_content_to_one_page_budget(content)
+
+    assert len(adjusted.skills) <= 18
+    assert estimate_layout_budget(adjusted)["body_lines"] <= 55
+    assert any("Compressed" in warning for warning in warnings)
 
 
 def test_tailor_resume_uses_configured_ai_provider_without_logging_private_inputs(

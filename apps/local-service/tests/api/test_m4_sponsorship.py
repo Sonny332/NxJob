@@ -55,6 +55,24 @@ def test_sponsorship_explicit_rejection_uses_local_rules(tmp_path, monkeypatch) 
     assert body["ai_used"] is False
 
 
+def test_sponsorship_not_eligible_for_visa_sponsorship_uses_local_rules(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "This role is not eligible for Visa Sponsorship.")
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "does_not_support"
+    assert body["ai_used"] is False
+
+
 def test_sponsorship_ambiguous_text_uses_ai_fallback_stub(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
 
