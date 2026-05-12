@@ -41,7 +41,6 @@ def render_resume_docx(content: TailoredResumeContent, output_path: Path) -> Pat
         contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
         contact.paragraph_format.space_before = Pt(0)
         contact.paragraph_format.space_after = Pt(0)
-        _set_no_wrap(contact)
         contact_run = contact.add_run(content.contact_line)
         contact_run.font.name = "Arial"
         contact_run.font.size = Pt(_contact_font_size(content.contact_line))
@@ -152,9 +151,3 @@ def _contact_font_size(contact_line: str) -> float:
     if length > 104:
         return 8.3
     return 9
-
-
-def _set_no_wrap(paragraph) -> None:
-    p_pr = paragraph._p.get_or_add_pPr()
-    if p_pr.find(qn("w:noWrap")) is None:
-        p_pr.append(OxmlElement("w:noWrap"))

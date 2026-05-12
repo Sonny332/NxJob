@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from zipfile import ZipFile
 
 from docx import Document
 from fastapi.testclient import TestClient
@@ -76,6 +77,9 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert "Python FastAPI services" in markdown_path.read_text(encoding="utf-8")
     paragraphs = [paragraph.text for paragraph in Document(file_path).paragraphs]
     assert any("Python FastAPI services" in text for text in paragraphs)
+    with ZipFile(file_path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "w:noWrap" not in document_xml
 
     with sqlite3.connect(db_path) as connection:
         prompt_row = connection.execute(
