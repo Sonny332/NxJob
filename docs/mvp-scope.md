@@ -55,7 +55,24 @@ AI layer:
 - Cloud sync.
 - Direct runtime tailoring from `.md`, `.txt`, `.doc`, or `.docx` master resume sources.
 
-## MVP Milestone Exit Criteria
+## Milestone Granularity
+
+NxJob is a personal MVP. Future milestones should represent user-visible progress, not every internal implementation step.
+
+Recommended milestone families:
+
+- Core Capture & Local Service
+- Sponsorship & Decision Aid
+- Resume Tailor Usable Loop
+- Form Answer & Application Tracking
+- Release & Daily Use Hardening
+- Post-MVP Learning / Success Feedback
+
+Do not create separate milestones for a single UI copy change, test fix, schema field, provider preset, small bug fix, or documentation correction unless the change carries unusual risk.
+
+The detailed M0-M8 list below records the historical build plan and can still be used as implementation context. It should not force future work into the same level of fragmentation.
+
+## Historical MVP Milestone Exit Criteria
 
 M0 exits when:
 
@@ -110,10 +127,6 @@ M8 exits when:
 - Windows local service installer exists.
 - Extension package exists.
 - Release checklist and packaging test result are recorded.
-
-## Current Recommendation
-
-Implement M0 first, then M1. Do not start M3 UI work before M1 and M2 establish the local service contract.
 
 ## Platform Scope
 

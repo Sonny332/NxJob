@@ -7,6 +7,8 @@
 - 桌面版和浏览器版数据不同源，应尽早明确测试环境。
 - 每次生成安装包后，应记录测试结果和版本差异。
 - 对小白用户，应该默认只暴露安装包，不暴露源码和开发脚本。
+- NxJob 是个人 MVP 项目。开发流程应服务于真实投递闭环，避免把低风险小任务拆成过多 milestone、worktree、PR 或 review。
+- 开发协作、agent 使用、worktree 门槛、PR 粒度和 token efficiency 规则见 `docs/development-governance.md`。涉及这些规则变更时，先读该文档和相关专项文档。
 
 ## NxJob Project Rules
 

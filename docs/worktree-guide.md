@@ -2,7 +2,9 @@
 
 ## Goal
 
-NxJob uses worktrees so `main` can stay clean while each milestone or feature gets its own working directory.
+NxJob uses worktrees when a task needs isolation. Worktrees are not the default unit for every small change.
+
+For the broader development process, see `docs/development-governance.md`.
 
 Recommended layout:
 
@@ -50,7 +52,10 @@ git worktree prune
 ## Rules
 
 - Keep `D:\Codex\NxJob` on `main`.
-- Use one branch per milestone or focused feature.
+- Use worktrees for large features, high-risk refactors, database or schema migrations, release candidates, parallel experiments, and changes with broad rollback risk.
+- Do not default to a worktree for small bug fixes, copy changes, small UI fixes, small test fixes, documentation cleanup, or single-file low-risk changes.
+- If a task does not need worktree isolation, use the current active branch or a lightweight branch strategy.
+- When using a worktree, use one branch per milestone, focused feature, or release candidate.
 - Do not create nested worktrees inside the main repo directory.
 - Before starting a new worktree, run `git pull --ff-only` in main.
 - Before deleting a worktree, confirm its branch is pushed or merged.

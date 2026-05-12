@@ -2,6 +2,8 @@
 
 NxJob version numbers follow `docs/versioning.md`.
 
+This checklist applies when preparing a versioned local or GitHub release. Ordinary development batches should not run the full release process unless they are becoming a published package.
+
 Before every release:
 
 - README is current.

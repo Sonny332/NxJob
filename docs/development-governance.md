@@ -1,0 +1,139 @@
+# NxJob Development Governance
+
+NxJob is a personal MVP project. Development process should reduce real job-application friction instead of creating enterprise-level ceremony.
+
+## Rule Priority
+
+When rules overlap or conflict, use this order:
+
+1. Safety boundaries: no automatic submission, no CAPTCHA bypass, no bulk scraping, and no no-confirmation mass applying.
+2. Privacy boundaries: real resumes, generated resumes, application records, local databases, API keys, and full PromptLog contents must stay out of GitHub, release packages, ordinary logs, and plugin-visible errors.
+3. Release quality: versioning, release checklist, installer validation, manifest/tag alignment, and release test records stay strict when preparing a versioned release.
+4. Workflow rules: worktree, PR, milestone, and review process should be lightweight and proportional to risk.
+5. Documentation style and process preferences can be changed when they improve MVP velocity.
+
+## Personal MVP Development Mode
+
+Development priorities:
+
+1. Reduce friction in real job-search and application workflows.
+2. Complete runnable, testable, end-to-end loops before expanding process.
+3. Avoid splitting small tasks into too many milestones, worktrees, PRs, or reviews.
+4. Keep engineering quality, but scale the process cost to the project size and risk.
+
+## Agent Collaboration Model
+
+Use a lightweight controller-led model.
+
+- The main agent / controller owns goal judgment, scope control, task splitting, acceptance criteria, and merge/release decisions.
+- Sub-agents are used only when they create clear value.
+- Do not start planning, implementation, review, and code-mapping agents for every small task.
+- Small bug fixes, copy changes, test fixes, and low-risk documentation updates should normally stay with the controller or a single implementer.
+
+Recommended roles for NxJob's current scale:
+
+| Role | When to use | Suggested model / effort |
+| --- | --- | --- |
+| PM / Controller | Default orchestration, scope, acceptance, and merge decisions | GPT-5.5 Thinking / Medium-High |
+| Planner / Architect | New feature, architectural change, large refactor, or release planning | GPT-5.5 Thinking / Medium-High |
+| Implementer | Normal code changes and tests | GPT-5.1 / Medium |
+| Reviewer / Evaluator | High-risk change, PR merge decision, or release readiness | GPT-5.5 Thinking / Medium |
+| Code Mapper | Unknown structure, broad cross-module impact, or refactor preparation | GPT-5 mini / Low |
+| Docs Agent | Focused documentation cleanup | GPT-5 mini / Low-Medium |
+| Test Agent | Focused verification or regression test expansion | GPT-5 mini / Low-Medium |
+| Release Agent | Versioned release preparation and package validation | GPT-5.1 / Medium |
+| Resume Quality Agent | Resume output quality evaluation and prompt/rule review | GPT-5.5 Thinking / Medium-High |
+| Form Answer Agent | Form-answer drafting quality checks | GPT-5 mini / Low-Medium |
+
+These are recommendations, not a requirement to spawn agents. Prefer fewer agents unless parallel work clearly reduces risk or time.
+
+## Milestone Granularity
+
+Milestones should represent user-visible product progress, not internal implementation steps.
+
+Prefer 5-6 major milestone families:
+
+- Core Capture & Local Service
+- Sponsorship & Decision Aid
+- Resume Tailor Usable Loop
+- Form Answer & Application Tracking
+- Release & Daily Use Hardening
+- Post-MVP Learning / Success Feedback
+
+Do not create a milestone for a single UI text change, test fix, schema field, provider preset, small bug fix, or documentation correction unless it carries unusual risk.
+
+## Worktree Usage
+
+Worktrees are for isolation, not the default unit of work.
+
+Use a worktree for:
+
+- Large feature development.
+- High-risk refactors.
+- Database or schema migrations.
+- Release candidates.
+- Parallel experiments.
+- Changes with broad rollback risk.
+
+Do not default to a worktree for:
+
+- Small bug fixes.
+- Copy or documentation changes.
+- Small UI adjustments.
+- Small test fixes.
+- Single-file low-risk changes.
+
+If a task does not meet the worktree threshold, use the current active branch or a lightweight branch strategy.
+
+## PR Granularity
+
+A PR should represent one of:
+
+- A user-visible value unit.
+- A high-risk technical change.
+- A release candidate.
+- An architecture change that needs explicit review.
+
+Small changes can be batched into the current development unit. At handoff, report:
+
+- Changed files.
+- Tests or checks run.
+- Risk notes.
+- Whether a PR is necessary.
+
+Do not open a PR by default unless the user asks, or the task clearly fits the PR threshold.
+
+## Anti-over-fragmentation
+
+Before splitting a task, confirm the split reduces risk.
+
+Split only when:
+
+- Subtasks can be independently tested.
+- Subtasks have independent user value.
+- Subtasks have independent rollback risk.
+- Subtasks involve different risk domains, such as database migration versus UI copy.
+- The user explicitly asks for phased execution.
+
+If multiple edits serve the same user goal, prefer one coherent implementation batch.
+
+## Token Efficiency
+
+Avoid unnecessary context and planning overhead:
+
+- Do not repeat already established NxJob background.
+- Do not write long implementation plans for low-risk changes.
+- Do not restate stable MVP boundaries unless they affect the decision.
+- Do not rescan unrelated files.
+- Read only the smallest relevant file set before editing.
+
+Required exception: before changing architecture, schema, privacy, release, worktree, agent, or governance rules, read the relevant rule documents first.
+
+## Existing Rule Handling
+
+When a similar rule already exists, merge instead of duplicating.
+
+- Keep the clearer and more specific wording.
+- Preserve stricter safety, privacy, and release requirements.
+- Rewrite over-enterprise workflow rules when they do not protect safety, privacy, or release quality.
+- If a conflict is unclear, list it for user confirmation instead of deleting a key rule.

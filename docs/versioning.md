@@ -98,6 +98,8 @@ Every released version must have:
 - A completed or partially completed `release-test-record-<version>.md`.
 - GitHub Release assets built from that same local release folder.
 
+Unreleased work can be batched before a tag is created. Do not bump the version for every small untagged fix, provider preset, documentation correction, or test-only adjustment. When preparing the next published release, choose the SemVer bump from the combined user-visible and compatibility impact of the batch.
+
 ## Current Recommended Mapping
 
 Historical packages may not perfectly follow this rule because the policy was adopted after early MVP development.
