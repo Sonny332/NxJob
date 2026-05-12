@@ -21,6 +21,10 @@ from nxjob.schemas.core import (
 from nxjob.settings.private_config import AiProviderConfig
 
 WORKFLOW_NAME = "tailor_resume"
+MAX_BODY_LINES = 55
+TARGET_MIN_BODY_LINES = 52
+NORMAL_LINE_CHARS = 118
+BULLET_LINE_CHARS = 112
 
 STOP_WORDS = {
     "and",
@@ -81,7 +85,7 @@ def tailor_resume_content(
     warnings = _quality_warnings(education_lines)
     content = TailoredResumeContent(
         candidate_name=candidate_name or "Candidate",
-        contact_line=contact_line,
+        contact_line=_fit_contact_line(contact_line),
         headline=headline,
         summary=summary,
         skills=skills,
@@ -92,7 +96,9 @@ def tailor_resume_content(
     markdown = render_tailored_resume_markdown(content)
     layout_budget = estimate_layout_budget(content)
     quality_checks = {
-        "one_page_budget_ok": layout_budget["body_lines"] <= 55 and layout_budget["heading_lines"] <= 5,
+        "one_page_budget_ok": layout_budget["body_lines"] <= MAX_BODY_LINES and layout_budget["heading_lines"] <= 5,
+        "page_fill_target_met": layout_budget["body_lines"] >= TARGET_MIN_BODY_LINES,
+        "contact_line_single_line": _line_count(content.contact_line, NORMAL_LINE_CHARS) <= 1,
         "education_years_present": bool(education_lines)
         and all(_contains_year_range(line) for line in education_lines),
         "summary_avoids_fixed_year_count": not any(re.search(r"\b\d+\+?\s+years?\b", line, re.I) for line in summary),
@@ -102,6 +108,8 @@ def tailor_resume_content(
     }
     if not quality_checks["one_page_budget_ok"]:
         warnings.append("Estimated one-page layout budget is high; review DOCX before submitting.")
+    if not quality_checks["page_fill_target_met"]:
+        warnings.append("Estimated resume content is under the target page-fill budget; review for unused space.")
     if not quality_checks["education_years_present"]:
         warnings.append("Education years are not available in the master resume data.")
 
@@ -220,7 +228,7 @@ def _change_summary(
     return f"Selected {len(selected)} bullet(s) by JD keyword overlap.{reference_note}"
 
 
-def _fit_bullet_line(text: str, target_chars: int = 112) -> str:
+def _fit_bullet_line(text: str, target_chars: int = 128) -> str:
     compact = " ".join(text.split())
     if len(compact) <= target_chars:
         return compact
@@ -240,7 +248,7 @@ def _experience_sections(
             key=lambda bullet: _bullet_score(bullet, jd_keywords, success_keywords),
             reverse=True,
         )
-        selected = [bullet for bullet in ranked if _bullet_score(bullet, jd_keywords, success_keywords) > 0][:3]
+        selected = [bullet for bullet in ranked if _bullet_score(bullet, jd_keywords, success_keywords) > 0][:4]
         if not selected:
             selected = ranked[:1]
         date_range = _date_range(item.start_date, item.end_date)
@@ -320,25 +328,26 @@ def estimate_layout_budget(content: TailoredResumeContent) -> dict[str, int]:
 
     body_lines = 1
     if content.contact_line:
-        body_lines += _line_count(content.contact_line, 118)
-    body_lines += sum(_line_count(line, 118) for line in content.summary)
-    body_lines += _line_count(", ".join(content.skills), 118) if content.skills else 0
+        body_lines += _line_count(content.contact_line, NORMAL_LINE_CHARS)
+    body_lines += sum(_line_count(line, NORMAL_LINE_CHARS) for line in content.summary)
+    body_lines += _line_count(", ".join(content.skills), NORMAL_LINE_CHARS) if content.skills else 0
     if content.experience_sections:
         for section in content.experience_sections:
-            body_lines += _line_count(_experience_header_line(section), 118)
-            body_lines += sum(_line_count(line, 112) for line in section.bullets)
+            body_lines += _line_count(_experience_header_line(section), NORMAL_LINE_CHARS)
+            body_lines += sum(_line_count(line, BULLET_LINE_CHARS) for line in section.bullets)
     else:
-        body_lines += sum(_line_count(line, 112) for line in content.experience_bullets)
-    body_lines += sum(_line_count(line, 118) for line in content.education)
+        body_lines += sum(_line_count(line, BULLET_LINE_CHARS) for line in content.experience_bullets)
+    body_lines += sum(_line_count(line, NORMAL_LINE_CHARS) for line in content.education)
 
     return {
         "name_lines": 1,
         "heading_lines": heading_lines,
         "body_lines": body_lines,
         "max_heading_lines": 5,
-        "max_body_lines": 55,
-        "normal_line_chars": 118,
-        "bullet_line_chars": 112,
+        "max_body_lines": MAX_BODY_LINES,
+        "target_min_body_lines": TARGET_MIN_BODY_LINES,
+        "normal_line_chars": NORMAL_LINE_CHARS,
+        "bullet_line_chars": BULLET_LINE_CHARS,
     }
 
 
@@ -399,7 +408,13 @@ def _ai_messages(
         "and master resume evidence. Do not invent unsupported facts. Do not remove known "
         "experience in a way that creates timeline gaps. Education must include years when "
         "provided. If exact years of experience cannot be calculated reliably, do not state a "
-        "numeric year count. Keep bullets compact for a one-page Arial DOCX renderer."
+        "numeric year count. Keep bullets dense for a one-page Arial DOCX renderer. "
+        "Target 52-55 estimated body lines so the page is close to full without "
+        "overflowing. Contact information must be one line; omit optional "
+        "work-authorization or relocation wording from the contact line if needed. "
+        "Experience bullets should usually land near a full line of text, roughly "
+        "100-128 characters, and may use two lines only when the extra detail "
+        "materially improves job match."
     )
     user = {
         "output_schema": {
@@ -445,8 +460,10 @@ def _ai_messages(
             "colors": "black only",
             "page": "single column, one page target",
             "body_line_budget": 55,
+            "target_body_lines": "52-55",
             "normal_line_chars": "110-118",
-            "bullet_line_chars": "105-112",
+            "bullet_line_chars": "100-128 preferred; estimate wraps at 112",
+            "contact_line": "single line only; keep location, phone, email, LinkedIn; omit optional status text if needed",
         },
         "job": {
             "company_name": job_lead.company_name,
@@ -496,7 +513,7 @@ def _draft_from_ai_payload(
         raise AiProviderError("invalid_response", "AI resume content did not match the expected schema.") from exc
 
     fit_warnings: list[str]
-    content, fit_warnings = _fit_content_to_one_page_budget(content)
+    content, fit_warnings = _fit_content_to_one_page_budget(content, local_baseline)
     markdown = render_tailored_resume_markdown(content)
     layout_budget = estimate_layout_budget(content)
     selected_bullet_ids = [
@@ -514,7 +531,9 @@ def _draft_from_ai_payload(
     ]
     warnings.extend(fit_warnings)
     quality_checks = {
-        "one_page_budget_ok": layout_budget["body_lines"] <= 55 and layout_budget["heading_lines"] <= 5,
+        "one_page_budget_ok": layout_budget["body_lines"] <= MAX_BODY_LINES and layout_budget["heading_lines"] <= 5,
+        "page_fill_target_met": layout_budget["body_lines"] >= TARGET_MIN_BODY_LINES,
+        "contact_line_single_line": _line_count(content.contact_line, NORMAL_LINE_CHARS) <= 1,
         "education_years_present": bool(content.education)
         and all(_contains_year_range(line) for line in content.education),
         "summary_avoids_fixed_year_count": not any(
@@ -529,6 +548,8 @@ def _draft_from_ai_payload(
     }
     if not quality_checks["one_page_budget_ok"]:
         warnings.append("AI output is above the estimated one-page budget; review DOCX before submitting.")
+    if not quality_checks["page_fill_target_met"]:
+        warnings.append("AI output is below the target page-fill budget; review DOCX for unused space.")
     if not quality_checks["summary_avoids_fixed_year_count"]:
         warnings.append("AI output includes a numeric experience year count; verify the calculation.")
     if content.experience_sections and not quality_checks["experience_timeline_preserved"]:
@@ -549,12 +570,15 @@ def _draft_from_ai_payload(
 
 def _fit_content_to_one_page_budget(
     content: TailoredResumeContent,
+    baseline: TailorDraft | None = None,
 ) -> tuple[TailoredResumeContent, list[str]]:
+    content = content.model_copy(update={"contact_line": _fit_contact_line(content.contact_line)})
+    content, fill_warnings = _expand_underfilled_content(content, baseline)
     budget = estimate_layout_budget(content)
-    if budget["body_lines"] <= 55 and budget["heading_lines"] <= 5:
-        return content, []
+    if budget["body_lines"] <= MAX_BODY_LINES and budget["heading_lines"] <= 5:
+        return content, fill_warnings
 
-    warnings: list[str] = []
+    warnings: list[str] = [*fill_warnings]
     adjusted = content
 
     if len(adjusted.skills) > 18:
@@ -563,7 +587,7 @@ def _fit_content_to_one_page_budget(
 
     sections = list(adjusted.experience_sections)
     removed_bullets = 0
-    while sections and estimate_layout_budget(adjusted)["body_lines"] > 55:
+    while sections and estimate_layout_budget(adjusted)["body_lines"] > MAX_BODY_LINES:
         changed = False
         for index in range(len(sections) - 1, -1, -1):
             section = sections[index]
@@ -583,6 +607,92 @@ def _fit_content_to_one_page_budget(
         )
 
     return adjusted, warnings
+
+
+def _fit_contact_line(contact_line: str) -> str:
+    compact = re.sub(r"\s*\|\s*", " | ", " ".join(contact_line.split())).strip()
+    if _line_count(compact, NORMAL_LINE_CHARS) <= 1:
+        return compact
+
+    parts = [part.strip() for part in compact.split("|") if part.strip()]
+    contact_parts = [part for part in parts if _looks_like_core_contact_part(part)]
+    if len(contact_parts) >= 3:
+        candidate = " | ".join(contact_parts)
+        if _line_count(candidate, NORMAL_LINE_CHARS) <= 1:
+            return candidate
+
+    condensed = " | ".join(parts[:4]) if len(parts) >= 4 else compact
+    return condensed[:NORMAL_LINE_CHARS].rstrip(" |,;")
+
+
+def _looks_like_core_contact_part(value: str) -> bool:
+    lower = value.lower()
+    return (
+        "@" in value
+        or "linkedin" in lower
+        or bool(re.search(r"\d{3}[-.\s]\d{3}[-.\s]\d{4}", value))
+        or lower.endswith(", ma")
+        or "boston" in lower
+    )
+
+
+def _expand_underfilled_content(
+    content: TailoredResumeContent,
+    baseline: TailorDraft | None,
+) -> tuple[TailoredResumeContent, list[str]]:
+    if baseline is None or not content.experience_sections:
+        return content, []
+    if estimate_layout_budget(content)["body_lines"] >= TARGET_MIN_BODY_LINES:
+        return content, []
+
+    baseline_by_key = {_section_key(section): section for section in baseline.content.experience_sections}
+    sections = list(content.experience_sections)
+    added = 0
+    changed = True
+    while changed and estimate_layout_budget(content.model_copy(update={"experience_sections": sections}))[
+        "body_lines"
+    ] < TARGET_MIN_BODY_LINES:
+        changed = False
+        for index, section in enumerate(sections):
+            baseline_section = baseline_by_key.get(_section_key(section))
+            if baseline_section is None:
+                continue
+            existing = {_normalize_for_compare(bullet) for bullet in section.bullets}
+            for candidate in baseline_section.bullets:
+                fitted = _fit_bullet_line(candidate)
+                if _normalize_for_compare(fitted) in existing:
+                    continue
+                candidate_sections = list(sections)
+                candidate_sections[index] = section.model_copy(update={"bullets": [*section.bullets, fitted]})
+                candidate_content = content.model_copy(update={"experience_sections": candidate_sections})
+                if estimate_layout_budget(candidate_content)["body_lines"] > MAX_BODY_LINES:
+                    continue
+                sections = candidate_sections
+                added += 1
+                changed = True
+                break
+            if changed:
+                break
+
+    if not added:
+        return content, []
+    return content.model_copy(update={"experience_sections": sections}), [
+        f"Added {added} truthful baseline bullet(s) to improve page fill."
+    ]
+
+
+def _section_key(section: TailoredExperienceSection) -> str:
+    return "|".join(
+        [
+            section.company.strip().lower(),
+            section.title.strip().lower(),
+            section.date_range.strip().lower(),
+        ]
+    )
+
+
+def _normalize_for_compare(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
 def _compact_json(data: dict[str, Any]) -> str:

@@ -15,6 +15,7 @@ from nxjob.workflows.resume_tailor import (
     TailorDraft,
     _contains_year_range,
     _fit_content_to_one_page_budget,
+    _fit_contact_line,
     estimate_layout_budget,
 )
 
@@ -95,6 +96,16 @@ def test_tailor_resume_accepts_en_dash_education_years() -> None:
     assert _contains_year_range("Northeastern University, Boston, MA, 2018 – 2020")
 
 
+def test_tailor_resume_contact_line_keeps_core_contact_on_one_line() -> None:
+    contact = _fit_contact_line(
+        "Boston / Greater Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | "
+        "LinkedIn: xu-shen-sonny332 | H-1B transfer candidate, open to U.S. relocation"
+    )
+
+    assert contact == "Boston / Greater Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332"
+    assert "H-1B" not in contact
+
+
 def test_tailor_resume_compacts_ai_output_to_one_page_budget() -> None:
     content = TailoredResumeContent(
         candidate_name="Candidate",
@@ -130,6 +141,60 @@ def test_tailor_resume_compacts_ai_output_to_one_page_budget() -> None:
     assert len(adjusted.skills) <= 18
     assert estimate_layout_budget(adjusted)["body_lines"] <= 55
     assert any("Compressed" in warning for warning in warnings)
+
+
+def test_tailor_resume_adds_baseline_bullets_when_ai_output_underfills_page() -> None:
+    content = TailoredResumeContent(
+        candidate_name="Candidate",
+        contact_line="Boston, MA | candidate@example.com",
+        headline="Application Engineer",
+        summary=["Application engineer focused on technical customer support."],
+        skills=["Application Engineering", "Technical Sales Support"],
+        experience_sections=[
+            TailoredExperienceSection(
+                company="BostonRen LLC",
+                location="Boston, MA",
+                title="Energy Analyst",
+                date_range="2023 - Present",
+                bullets=["Supported HVAC analysis and customer-facing technical deliverables."],
+            )
+        ],
+        experience_bullets=[],
+        education=["Northeastern University | M.S. | Boston, MA | 2018 - 2020"],
+    )
+    baseline_content = content.model_copy(
+        update={
+            "experience_sections": [
+                TailoredExperienceSection(
+                    company="BostonRen LLC",
+                    location="Boston, MA",
+                    title="Energy Analyst",
+                    date_range="2023 - Present",
+                    bullets=[
+                        "Supported HVAC analysis and customer-facing technical deliverables.",
+                        "Prepared bid-stage scopes, project-cost assumptions, and client-ready decision materials for engineered building upgrades.",
+                        "Translated field findings, equipment constraints, and utility data into implementation-ready recommendations for stakeholders.",
+                    ],
+                )
+            ]
+        }
+    )
+    baseline = TailorDraft(
+        content=baseline_content,
+        selected_bullet_ids=[],
+        change_summary="",
+        token_usage={},
+        markdown="",
+        layout_budget=estimate_layout_budget(baseline_content),
+        quality_checks={},
+        warnings=[],
+    )
+
+    adjusted, warnings = _fit_content_to_one_page_budget(content, baseline)
+
+    assert len(adjusted.experience_sections[0].bullets) == 3
+    assert estimate_layout_budget(adjusted)["body_lines"] <= 55
+    assert any("Added 2 truthful baseline bullet" in warning for warning in warnings)
 
 
 def test_tailor_resume_uses_configured_ai_provider_without_logging_private_inputs(

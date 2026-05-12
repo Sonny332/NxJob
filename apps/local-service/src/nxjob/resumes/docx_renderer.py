@@ -41,9 +41,10 @@ def render_resume_docx(content: TailoredResumeContent, output_path: Path) -> Pat
         contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
         contact.paragraph_format.space_before = Pt(0)
         contact.paragraph_format.space_after = Pt(0)
+        _set_no_wrap(contact)
         contact_run = contact.add_run(content.contact_line)
         contact_run.font.name = "Arial"
-        contact_run.font.size = Pt(9)
+        contact_run.font.size = Pt(_contact_font_size(content.contact_line))
         contact_run.font.color.rgb = RGBColor(0, 0, 0)
 
     _add_section(document, "PROFESSIONAL SUMMARY", content.summary, bullet=False)
@@ -142,3 +143,18 @@ def _add_bottom_border(paragraph) -> None:
     bottom.set(qn("w:sz"), "4")
     bottom.set(qn("w:space"), "1")
     bottom.set(qn("w:color"), "000000")
+
+
+def _contact_font_size(contact_line: str) -> float:
+    length = len(contact_line)
+    if length > 118:
+        return 7.8
+    if length > 104:
+        return 8.3
+    return 9
+
+
+def _set_no_wrap(paragraph) -> None:
+    p_pr = paragraph._p.get_or_add_pPr()
+    if p_pr.find(qn("w:noWrap")) is None:
+        p_pr.append(OxmlElement("w:noWrap"))
