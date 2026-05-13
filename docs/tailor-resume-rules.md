@@ -35,6 +35,7 @@ M11 Tailor Resume generates an English, ATS-friendly, one-page-first resume from
 - If no AI provider is configured, deterministic local tailoring remains available for development and offline smoke tests.
 - Tailored content supports `experience_sections` for role-based rendering. Flat `experience_bullets` remain only as a backward-compatible fallback.
 - Local service owns file naming, directory validation, DOCX rendering, Markdown writing, caching, and ResumeVersion recording.
+- AI output with no substantive resume content must fail with a plugin-readable `invalid_response` error. Do not create DOCX/Markdown artifacts, `ResumeVersion`, or a `tailored` JobLead status from an empty provider response.
 - Provider errors must be categorized into plugin-readable messages without echoing provider response bodies that could contain sensitive request data.
 - Prompt logs must contain summaries, provider/model labels, sanitized error categories, and token usage only. Do not log full JD, full Master Resume, API key, or full prompt text.
 

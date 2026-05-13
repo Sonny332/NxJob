@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 
@@ -15,10 +16,25 @@ from nxjob.schemas.core import TailoredExperienceSection, TailoredResumeContent
 from nxjob.workflows.resume_tailor import (
     TailorDraft,
     _contains_year_range,
+    _draft_from_ai_payload,
     _fit_content_to_one_page_budget,
     _fit_contact_line,
     estimate_layout_budget,
 )
+
+
+class FakeAiResponse:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
 
 
 def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) -> None:
@@ -199,6 +215,191 @@ def test_tailor_resume_adds_baseline_bullets_when_ai_output_underfills_page() ->
     assert len(adjusted.experience_sections[0].bullets) == 3
     assert estimate_layout_budget(adjusted)["body_lines"] <= 55
     assert any("Added 2 truthful baseline bullet" in warning for warning in warnings)
+
+
+def test_ai_payload_empty_content_is_rejected() -> None:
+    baseline_content = TailoredResumeContent(
+        candidate_name="Xu (Sonny) Shen",
+        contact_line="Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332",
+        headline="Application Engineer alignment",
+        summary=["Engineer focused on energy systems, technical analysis, and customer-facing execution."],
+        skills=["Application Engineering", "Technical Analysis", "Project Coordination"],
+        experience_sections=[
+            TailoredExperienceSection(
+                company="BostonRen LLC",
+                location="Boston, MA",
+                title="Energy Analyst",
+                date_range="2023 - Present",
+                bullets=[
+                    "Developed technical scopes and analysis for building-system upgrades and client decisions.",
+                    "Supported project bids, decision decks, and cross-functional technical delivery.",
+                ],
+            )
+        ],
+        education=["Northeastern University | M.S. in Energy Systems Engineering | 2018 - 2020"],
+    )
+    baseline = TailorDraft(
+        content=baseline_content,
+        selected_bullet_ids=["baseline_bullet"],
+        change_summary="Local baseline.",
+        token_usage={},
+        markdown="",
+        layout_budget=estimate_layout_budget(baseline_content),
+        quality_checks={},
+        warnings=[],
+    )
+
+    with pytest.raises(AiProviderError) as exc_info:
+        _draft_from_ai_payload({"content": {}}, baseline, {"total_tokens": 10})
+
+    assert exc_info.value.category == "invalid_response"
+
+
+def test_ai_payload_partial_content_is_repaired_from_local_baseline() -> None:
+    baseline_content = TailoredResumeContent(
+        candidate_name="Xu (Sonny) Shen",
+        contact_line="Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332",
+        headline="Application Engineer alignment",
+        summary=["Engineer focused on energy systems, technical analysis, and customer-facing execution."],
+        skills=["Application Engineering", "Technical Analysis", "Project Coordination"],
+        experience_sections=[
+            TailoredExperienceSection(
+                company="BostonRen LLC",
+                location="Boston, MA",
+                title="Energy Analyst",
+                date_range="2023 - Present",
+                bullets=[
+                    "Developed technical scopes and analysis for building-system upgrades and client decisions.",
+                    "Supported project bids, decision decks, and cross-functional technical delivery.",
+                ],
+            )
+        ],
+        education=["Northeastern University | M.S. in Energy Systems Engineering | 2018 - 2020"],
+    )
+    baseline = TailorDraft(
+        content=baseline_content,
+        selected_bullet_ids=["baseline_bullet"],
+        change_summary="Local baseline.",
+        token_usage={},
+        markdown="",
+        layout_budget=estimate_layout_budget(baseline_content),
+        quality_checks={},
+        warnings=[],
+    )
+
+    draft = _draft_from_ai_payload(
+        {
+            "content": {
+                "summary": ["Application engineer aligned with customer-facing technical support."],
+                "quality_checks": {"truthful_to_master_resume": True},
+            }
+        },
+        baseline,
+        {"total_tokens": 10},
+    )
+
+    assert draft.content.candidate_name == "Xu (Sonny) Shen"
+    assert draft.content.summary
+    assert draft.content.skills
+    assert draft.content.experience_sections
+    assert draft.content.education
+    assert "BostonRen LLC" in draft.markdown
+    assert draft.quality_checks["ai_repaired_from_baseline"] is True
+    assert draft.quality_checks["requires_user_review"] is True
+    assert any("AI output was incomplete" in warning for warning in draft.warnings)
+
+
+def test_ai_empty_content_does_not_generate_candidate_only_docx(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    output_dir = tmp_path / "generated"
+    master_path = tmp_path / "master-resume.json"
+    master_path.write_text(
+        json.dumps(
+            {
+                "id": "master_default",
+                "candidate_name": "Xu (Sonny) Shen",
+                "contact_line": "Boston, MA | 857-891-9711 | sonnyshen332@gmail.com",
+                "bullets": [
+                    {
+                        "id": "bullet_energy",
+                        "text": "Built energy planning analyses and client-ready technical recommendations.",
+                        "tags": ["energy", "planning", "analysis"],
+                    }
+                ],
+                "experience": [
+                    {
+                        "company": "BostonRen LLC",
+                        "location": "Boston, MA",
+                        "title": "Energy Analyst",
+                        "start_date": "2023",
+                        "end_date": "Present",
+                        "bullets": [
+                            {
+                                "id": "exp_energy",
+                                "text": "Developed technical scopes for energy-system upgrades and implementation planning.",
+                                "tags": ["energy", "technical", "planning"],
+                            }
+                        ],
+                    }
+                ],
+                "education": [
+                    {
+                        "school": "Northeastern University",
+                        "degree": "M.S. in Energy Systems Engineering",
+                        "location": "Boston, MA",
+                        "start_year": "2018",
+                        "end_year": "2020",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(output_dir))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
+
+    def fake_urlopen(request, timeout):
+        return FakeAiResponse(
+            {
+                "model": "test-tailor-model",
+                "usage": {"total_tokens": 42},
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "content": {},
+                                    "selected_bullet_ids": [],
+                                    "change_summary": "Provider returned no resume content.",
+                                }
+                            )
+                        }
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Energy planning role using technical analysis and stakeholder coordination.")
+        response = client.post("/api/v1/resumes/tailor", json={"job_lead_id": job_id})
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"]["code"] == "invalid_response"
+    assert not output_dir.exists() or not list(output_dir.iterdir())
+
+    with sqlite3.connect(db_path) as connection:
+        resume_count = connection.execute("SELECT COUNT(*) FROM resume_versions").fetchone()[0]
+        job_status = connection.execute("SELECT status FROM job_leads WHERE id = ?", (job_id,)).fetchone()[0]
+        prompt_row = connection.execute("SELECT error FROM prompt_logs").fetchone()
+
+    assert resume_count == 0
+    assert job_status != "tailored"
+    assert prompt_row[0] == "invalid_response"
 
 
 def test_tailor_resume_uses_configured_ai_provider_without_logging_private_inputs(

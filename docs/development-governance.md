@@ -136,6 +136,8 @@ Long-running agent or command work must have an explicit timeout and fallback.
 - Do not wait indefinitely for a sub-agent, test command, packaging command, or GitHub operation.
 - For normal checks, use short timeouts first. For expensive commands, state why the longer timeout is needed.
 - If a sub-agent does not return useful status within the timeout, stop waiting, inspect local state, and either close the sub-agent or continue with the controller.
+- If Codex Desktop appears stuck but no command output is changing, first read the current terminal/session state or switch away and back once to refresh the UI. Treat that as a UI recovery step, not as proof the underlying task is still working.
+- When sub-agents are used, the controller must keep a short list of active agents, their assigned role, and the last useful result. Do not let a completed implementation wait indefinitely for a review agent; use one bounded wait, then proceed with documented risk or close the stale agent.
 - If a command fails twice with the same class of error, stop repeating it and switch to systematic debugging: identify the failing layer, form one hypothesis, and test that hypothesis with the smallest command.
 - If a command appears to hang, check whether useful work has already completed before retrying. Record the last successful command and avoid rerunning broad suites unnecessarily.
 - At handoff, report any interrupted or closed sub-agents, known background processes, and whether the worktree is clean.
@@ -146,6 +148,15 @@ Default timeout guidance:
 - Local service startup, packaging, or release validation: 2-10 minutes with progress updates.
 - Sub-agent review or implementation: wait once with a bounded timeout, then poll or close if no status is returned.
 - Anything still running after 30 minutes requires an explicit status update and a decision to continue, close, or replace the task path.
+
+## Windows Path Handling
+
+Windows paths with spaces are expected in this project and must be treated as a normal test case.
+
+- In PowerShell, prefer `-LiteralPath` for filesystem paths and quote path values with single quotes in commands and documentation examples.
+- In Python, Node, and PowerShell process launches, pass path arguments as argument arrays or structured parameters. Do not build one shell string that embeds unescaped path values.
+- When testing packaging, local service startup, generated resumes, or user-selected output folders, include at least one path under a profile name with spaces, such as `C:\Users\Sonny Shen\...`.
+- If a command fails only when a path contains spaces, treat it as a bug in quoting or process invocation, not as a user environment issue.
 
 ## Existing Rule Handling
 

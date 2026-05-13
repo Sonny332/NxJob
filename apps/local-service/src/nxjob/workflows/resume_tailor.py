@@ -507,12 +507,20 @@ def _draft_from_ai_payload(
     local_baseline: TailorDraft,
     token_usage: dict[str, Any],
 ) -> TailorDraft:
+    raw_content = payload.get("content", {})
+    if not isinstance(raw_content, dict) or not _has_substantive_ai_payload(raw_content):
+        raise AiProviderError(
+            "invalid_response",
+            "AI resume content was incomplete. Retry or switch provider.",
+            502,
+        )
     try:
-        content = TailoredResumeContent.model_validate(payload.get("content", {}))
+        content = TailoredResumeContent.model_validate(raw_content)
     except ValidationError as exc:
         raise AiProviderError("invalid_response", "AI resume content did not match the expected schema.") from exc
 
     fit_warnings: list[str]
+    content, repair_warnings = _repair_incomplete_ai_content(content, local_baseline)
     content, fit_warnings = _fit_content_to_one_page_budget(content, local_baseline)
     markdown = render_tailored_resume_markdown(content)
     layout_budget = estimate_layout_budget(content)
@@ -529,7 +537,12 @@ def _draft_from_ai_payload(
         for value in payload.get("warnings", [])
         if isinstance(value, str) and value.strip()
     ]
+    warnings.extend(repair_warnings)
     warnings.extend(fit_warnings)
+    payload_quality_checks = payload.get("quality_checks")
+    if not isinstance(payload_quality_checks, dict):
+        payload_quality_checks = {}
+    truthful_to_master_resume = bool(payload_quality_checks.get("truthful_to_master_resume", False))
     quality_checks = {
         "one_page_budget_ok": layout_budget["body_lines"] <= MAX_BODY_LINES and layout_budget["heading_lines"] <= 5,
         "page_fill_target_met": layout_budget["body_lines"] >= TARGET_MIN_BODY_LINES,
@@ -540,9 +553,9 @@ def _draft_from_ai_payload(
             re.search(r"\b\d+\+?\s+years?\b", line, re.I) for line in content.summary
         ),
         "experience_timeline_preserved": _timeline_preserved(content.experience_sections),
-        "truthful_to_master_resume": bool(payload.get("quality_checks", {}).get("truthful_to_master_resume", True))
-        if isinstance(payload.get("quality_checks"), dict)
-        else True,
+        "truthful_to_master_resume": truthful_to_master_resume,
+        "ai_repaired_from_baseline": bool(repair_warnings),
+        "requires_user_review": bool(repair_warnings) or not truthful_to_master_resume,
         "renderer_uses_black_arial_template": True,
         "markdown_generated_from_same_content": True,
     }
@@ -565,6 +578,99 @@ def _draft_from_ai_payload(
         layout_budget=layout_budget,
         quality_checks=quality_checks,
         warnings=warnings,
+    )
+
+
+def _repair_incomplete_ai_content(
+    content: TailoredResumeContent,
+    baseline: TailorDraft,
+) -> tuple[TailoredResumeContent, list[str]]:
+    warnings: list[str] = []
+    updates: dict[str, object] = {}
+    baseline_content = baseline.content
+
+    if _is_placeholder_candidate(content.candidate_name) and not _is_placeholder_candidate(
+        baseline_content.candidate_name
+    ):
+        updates["candidate_name"] = baseline_content.candidate_name
+
+    if not content.contact_line.strip() and baseline_content.contact_line.strip():
+        updates["contact_line"] = baseline_content.contact_line
+
+    if not content.summary and baseline_content.summary:
+        updates["summary"] = baseline_content.summary
+
+    if not content.skills and baseline_content.skills:
+        updates["skills"] = baseline_content.skills
+
+    has_experience = bool(content.experience_sections) or bool(content.experience_bullets)
+    if not has_experience:
+        if baseline_content.experience_sections:
+            updates["experience_sections"] = baseline_content.experience_sections
+        if baseline_content.experience_bullets:
+            updates["experience_bullets"] = baseline_content.experience_bullets
+
+    if not content.education and baseline_content.education:
+        updates["education"] = baseline_content.education
+
+    if updates:
+        warnings.append("AI output was incomplete; filled missing resume sections from local baseline evidence.")
+        content = content.model_copy(update=updates)
+
+    if not _has_minimum_resume_content(content):
+        raise AiProviderError(
+            "invalid_response",
+            "AI resume content was incomplete. Retry or switch provider.",
+            502,
+        )
+
+    return content, warnings
+
+
+def _has_substantive_ai_payload(raw_content: dict[str, Any]) -> bool:
+    text_fields = [
+        raw_content.get("contact_line"),
+        raw_content.get("headline"),
+    ]
+    list_fields = [
+        raw_content.get("summary"),
+        raw_content.get("skills"),
+        raw_content.get("experience_bullets"),
+        raw_content.get("education"),
+    ]
+    if any(isinstance(value, str) and value.strip() for value in text_fields):
+        return True
+    if any(isinstance(value, list) and any(str(item).strip() for item in value) for value in list_fields):
+        return True
+    sections = raw_content.get("experience_sections")
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            bullets = section.get("bullets")
+            section_text = " ".join(
+                str(section.get(key, "")).strip()
+                for key in ("company", "title", "date_range", "location")
+            )
+            if section_text.strip():
+                return True
+            if isinstance(bullets, list) and any(str(bullet).strip() for bullet in bullets):
+                return True
+    return False
+
+
+def _is_placeholder_candidate(value: str) -> bool:
+    return value.strip().lower() in {"", "candidate", "tailored resume"}
+
+
+def _has_minimum_resume_content(content: TailoredResumeContent) -> bool:
+    return bool(
+        content.candidate_name.strip()
+        and content.contact_line.strip()
+        and content.summary
+        and content.skills
+        and (content.experience_sections or content.experience_bullets)
+        and content.education
     )
 
 

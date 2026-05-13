@@ -19,5 +19,7 @@
 - Do not implement bulk scraping, automatic submission, CAPTCHA bypass, or no-confirmation mass applying.
 - Before writing or changing UI, read and follow `docs/design.md`.
 - Windows packaging scripts must be tested with install paths containing spaces, such as `%LOCALAPPDATA%\NxJob\LocalService` under `C:\Users\Sonny Shen`.
+- When writing commands or scripts that receive Windows paths, use quoted path values, PowerShell `-LiteralPath`, and argument arrays or structured parameters. Do not concatenate path-valued arguments into one shell string.
 - Do not pass path-valued arguments through a manually joined `Start-Process -ArgumentList` string. Prefer installed packages, environment variables, splatted argument arrays for direct invocation, or a tested escaping helper.
 - Local service startup must not depend on `uvicorn --app-dir <path with spaces>` in background mode; use the venv-installed `nxjob` package so user profile paths are not parsed as CLI arguments.
+- Long-running Codex work must use bounded waits. If the UI appears stuck, refresh the session view once, inspect command/sub-agent status, and continue or close stale agents instead of waiting indefinitely.

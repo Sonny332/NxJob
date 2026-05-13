@@ -1,6 +1,6 @@
 {
   "name": "nxjob",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "NxJob MVP monorepo",
   "workspaces": [
