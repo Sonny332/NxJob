@@ -100,40 +100,40 @@ def delete_ai_provider_config() -> None:
         path.unlink()
 
 
-def read_ai_provider_status() -> tuple[bool, str, str]:
-    env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
-    if env_api_key:
-        return (
-            True,
-            os.environ.get("NXJOB_AI_PROVIDER", "openai_compatible").strip()
-            or "openai_compatible",
-            os.environ.get("NXJOB_AI_MODEL", "").strip(),
-        )
+def read_ai_provider_status() -> tuple[bool, str, str, str]:
+    private_config = _read_private_ai_provider_config()
+    if private_config is not None:
+        return True, private_config.provider, private_config.model, "private_config"
 
-    path = private_ai_provider_path()
-    if not path.exists():
-        return False, "", ""
+    env_config = _read_env_ai_provider_config()
+    if env_config is not None:
+        return True, env_config.provider, env_config.model, "environment"
 
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return False, "", ""
-
-    configured = bool(str(data.get("api_key", "")).strip())
-    return configured, _normalize_provider(str(data.get("provider", ""))), str(data.get("model", ""))
+    return False, "", "", ""
 
 
 def read_ai_provider_config() -> AiProviderConfig | None:
-    env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
-    if env_api_key:
-        return AiProviderConfig(
-            provider=_normalize_provider(os.environ.get("NXJOB_AI_PROVIDER", "openai")),
-            base_url=os.environ.get("NXJOB_AI_BASE_URL", "").strip(),
-            model=os.environ.get("NXJOB_AI_MODEL", "").strip(),
-            api_key=env_api_key,
-        )
+    private_config = _read_private_ai_provider_config()
+    if private_config is not None:
+        return private_config
 
+    return _read_env_ai_provider_config()
+
+
+def _read_env_ai_provider_config() -> AiProviderConfig | None:
+    env_api_key = os.environ.get("NXJOB_AI_API_KEY", "").strip()
+    if not env_api_key:
+        return None
+
+    return AiProviderConfig(
+        provider=_normalize_provider(os.environ.get("NXJOB_AI_PROVIDER", "openai")),
+        base_url=os.environ.get("NXJOB_AI_BASE_URL", "").strip(),
+        model=os.environ.get("NXJOB_AI_MODEL", "").strip(),
+        api_key=env_api_key,
+    )
+
+
+def _read_private_ai_provider_config() -> AiProviderConfig | None:
     path = private_ai_provider_path()
     if not path.exists():
         return None

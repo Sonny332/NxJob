@@ -34,7 +34,7 @@ from nxjob.schemas.core import (
     WorkflowCacheInfo,
     WorkflowTraceRecord,
 )
-from nxjob.settings.private_config import configured_resume_output_dir, read_ai_provider_config
+from nxjob.settings.private_config import configured_resume_output_dir, read_ai_provider_config, read_ai_provider_status
 from nxjob.workflows.resume_tailor import (
     WORKFLOW_NAME,
     extract_keywords,
@@ -82,6 +82,7 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             payload.success_reference_limit,
         )
         ai_config = read_ai_provider_config()
+        _ai_configured, _ai_provider_name, _ai_model, ai_provider_source = read_ai_provider_status()
         cache_key = workflow_cache_key(
             WORKFLOW_NAME,
             "v3",
@@ -175,7 +176,22 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
                 ),
             )
             connection.commit()
-            raise HTTPException(status_code=exc.status_code, detail=exc.user_message) from exc
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={
+                    "message": exc.user_message,
+                    "error": {
+                        "code": exc.category,
+                        "message": exc.user_message,
+                        "upstream_status": exc.upstream_status,
+                        "retryable": exc.retryable,
+                        "provider": ai_config.provider if ai_config is not None else "",
+                        "model": ai_config.model if ai_config is not None else "",
+                        "config_source": ai_provider_source,
+                        "trace_id": trace_id,
+                    },
+                },
+            ) from exc
 
         filename_base, output_path, markdown_path = _resume_output_paths(job_lead, output_dir)
         render_resume_docx(draft.content, output_path)

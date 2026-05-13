@@ -308,7 +308,9 @@ def test_tailor_resume_ai_provider_failure_is_sanitized(tmp_path, monkeypatch) -
         )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "AI provider authentication failed."
+    assert response.json()["detail"]["message"] == "AI provider authentication failed."
+    assert response.json()["detail"]["error"]["code"] == "authentication_failed"
+    assert response.json()["detail"]["error"]["config_source"] == "environment"
     assert "sk-private-test-key" not in response.text
 
     with sqlite3.connect(db_path) as connection:

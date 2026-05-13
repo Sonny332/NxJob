@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "schemaVersion": {
-      "const": "0.4.0"
+      "const": "0.4.1"
     },
     "sponsorshipStatus": {
       "enum": [
@@ -341,20 +341,22 @@
         "trace_id",
         "master_resume_configured",
         "master_resume_source",
-        "ai_provider_configured",
-        "ai_provider_name",
-        "ai_model",
-        "public_lookup_available",
-        "warnings"
+          "ai_provider_configured",
+          "ai_provider_name",
+          "ai_model",
+          "ai_provider_source",
+          "public_lookup_available",
+          "warnings"
       ],
       "properties": {
         "trace_id": { "type": "string" },
         "master_resume_configured": { "type": "boolean" },
         "master_resume_source": { "type": "string" },
-        "ai_provider_configured": { "type": "boolean" },
-        "ai_provider_name": { "type": "string" },
-        "ai_model": { "type": "string" },
-        "public_lookup_available": { "type": "boolean" },
+          "ai_provider_configured": { "type": "boolean" },
+          "ai_provider_name": { "type": "string" },
+          "ai_model": { "type": "string" },
+          "ai_provider_source": { "type": "string" },
+          "public_lookup_available": { "type": "boolean" },
         "warnings": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false

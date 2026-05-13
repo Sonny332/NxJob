@@ -122,6 +122,7 @@ export type ConfigStatusResponse = {
   ai_provider_configured: boolean;
   ai_provider_name: string;
   ai_model: string;
+  ai_provider_source: string;
   resume_output_dir_configured: boolean;
   resume_output_dir: string;
   public_lookup_available: boolean;
@@ -596,7 +597,13 @@ function inferSourceSite(url: string): SourceSite {
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as { detail?: string; error?: { message?: string } };
+    const body = (await response.json()) as {
+      detail?: string | { message?: string; error?: { message?: string } };
+      error?: { message?: string };
+    };
+    if (typeof body.detail === "object" && body.detail !== null) {
+      return body.detail.error?.message ?? body.detail.message ?? `NxJob local service returned ${response.status}.`;
+    }
     return body.error?.message ?? body.detail ?? `NxJob local service returned ${response.status}.`;
   } catch {
     return `NxJob local service returned ${response.status}.`;

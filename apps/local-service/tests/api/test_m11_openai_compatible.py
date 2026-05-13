@@ -122,4 +122,28 @@ def test_openai_compatible_client_classifies_http_errors(
 
     assert exc.value.category == category
     assert exc.value.status_code == public_status
+    assert exc.value.upstream_status == status_code
     assert "sk-secret" not in exc.value.user_message
+
+
+def test_openai_compatible_client_explains_retryable_provider_unavailable(monkeypatch) -> None:
+    def fake_urlopen(request, timeout):
+        raise HTTPError(request.full_url, 503, "unavailable", hdrs=None, fp=None)
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    with pytest.raises(AiProviderError) as exc:
+        request_json_object(
+            AiProviderConfig(
+                provider="gemini",
+                base_url="",
+                model="gemini-3.1-flash-lite",
+                api_key="sk-secret",
+            ),
+            [{"role": "user", "content": "Return JSON."}],
+        )
+
+    assert exc.value.category == "provider_unavailable"
+    assert exc.value.retryable is True
+    assert exc.value.upstream_status == 503
+    assert "HTTP 503" in exc.value.user_message

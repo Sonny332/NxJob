@@ -556,6 +556,11 @@ export function App() {
             <label>
               <span>API Key</span>
               <input value={apiKey} type="password" onChange={(event) => setApiKey(event.target.value)} />
+              {config?.ai_provider_configured ? (
+                <small>
+                  Active source: {config.ai_provider_source === "environment" ? "environment fallback" : "local private config"}
+                </small>
+              ) : null}
             </label>
             <label>
               <span>Resume Output Folder</span>
@@ -576,7 +581,9 @@ export function App() {
                 Clear AI Key
               </button>
             </div>
-            <small>Private config is stored by the local service. Keys and resume contents are not written to logs.</small>
+            <small>
+              NxJob uses local private config first. Environment variables are only a development fallback. Keys and resume contents are not written to logs.
+            </small>
           </div>
         ) : null}
       </section>

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.4.0",
+  [string]$Version = "0.4.1",
   [string]$ArtifactsDir = ""
 )
 
@@ -120,7 +120,11 @@ $extensionEntries = Get-ZipEntries -ZipPath $extensionZip
 Assert-ZipContains -Entries $extensionEntries -Required @(
   "manifest.json",
   "popup.html",
-  "background.js"
+  "background.js",
+  "assets/icons/nxjob-16.png",
+  "assets/icons/nxjob-32.png",
+  "assets/icons/nxjob-48.png",
+  "assets/icons/nxjob-128.png"
 )
 Assert-ZipExcludes -Entries $extensionEntries -ForbiddenPatterns @(
   "private/*",

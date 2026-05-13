@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/v1/config", tags=["config"])
 @router.get("/status", response_model=ConfigStatusResponse)
 def read_config_status() -> ConfigStatusResponse:
     master_configured, master_source, _master_path = read_master_resume_status()
-    ai_configured, ai_provider, ai_model = read_ai_provider_status()
+    ai_configured, ai_provider, ai_model, ai_provider_source = read_ai_provider_status()
     output_configured, _output_source, output_dir = read_resume_output_status()
     warnings: list[str] = []
 
@@ -44,6 +44,7 @@ def read_config_status() -> ConfigStatusResponse:
         ai_provider_configured=ai_configured,
         ai_provider_name=ai_provider if ai_configured else "",
         ai_model=ai_model if ai_configured else "",
+        ai_provider_source=ai_provider_source if ai_configured else "",
         resume_output_dir_configured=output_configured,
         resume_output_dir=output_dir,
         public_lookup_available=False,

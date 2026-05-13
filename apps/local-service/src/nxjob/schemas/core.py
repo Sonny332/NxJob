@@ -367,6 +367,7 @@ class ConfigStatusResponse(TraceResponse):
     ai_provider_configured: bool
     ai_provider_name: str = ""
     ai_model: str = ""
+    ai_provider_source: str = ""
     resume_output_dir_configured: bool = False
     resume_output_dir: str = ""
     public_lookup_available: bool = False

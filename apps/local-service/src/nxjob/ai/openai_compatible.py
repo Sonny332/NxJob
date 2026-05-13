@@ -29,11 +29,20 @@ class AiJsonResult:
 
 
 class AiProviderError(RuntimeError):
-    def __init__(self, category: str, user_message: str, status_code: int = 502) -> None:
+    def __init__(
+        self,
+        category: str,
+        user_message: str,
+        status_code: int = 502,
+        upstream_status: int | None = None,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(user_message)
         self.category = category
         self.user_message = user_message
         self.status_code = status_code
+        self.upstream_status = upstream_status
+        self.retryable = retryable
 
 
 def request_json_object(
@@ -134,15 +143,23 @@ def _message_content(response_data: dict[str, Any]) -> str:
 
 def _http_error(exc: HTTPError) -> AiProviderError:
     if exc.code in {401, 403}:
-        return AiProviderError("authentication_failed", "AI provider authentication failed.", 401)
+        return AiProviderError("authentication_failed", "AI provider authentication failed.", 401, exc.code, False)
     if exc.code == 429:
-        return AiProviderError("rate_limited", "AI provider rate limit was reached.", 429)
+        return AiProviderError("rate_limited", "AI provider rate limit was reached.", 429, exc.code, True)
     if 500 <= exc.code <= 599:
-        return AiProviderError("provider_unavailable", "AI provider is temporarily unavailable.", 502)
+        return AiProviderError(
+            "provider_unavailable",
+            f"AI provider returned HTTP {exc.code}. Retry later or switch provider.",
+            502,
+            exc.code,
+            True,
+        )
     if exc.code == 404:
         return AiProviderError(
             "endpoint_not_found",
             "AI provider endpoint was not found. Choose a preset provider or check the Base URL.",
             502,
+            exc.code,
+            False,
         )
-    return AiProviderError("provider_error", f"AI provider returned HTTP {exc.code}.", 502)
+    return AiProviderError("provider_error", f"AI provider returned HTTP {exc.code}.", 502, exc.code, False)

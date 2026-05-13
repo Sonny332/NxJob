@@ -72,9 +72,40 @@ def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_p
     assert "sk-test-secret" not in ai.text
     assert status.json()["master_resume_configured"] is True
     assert status.json()["ai_provider_configured"] is True
+    assert status.json()["ai_provider_source"] == "private_config"
     assert private_master_resume_path().exists()
     assert private_ai_provider_path().exists() is False
     assert cleared.json()["ai_provider_configured"] is False
+
+
+def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-env-test-key")
+    monkeypatch.setenv("NXJOB_AI_PROVIDER", "deepseek")
+    monkeypatch.setenv("NXJOB_AI_MODEL", "env-model")
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        saved = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "gemini",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "model": "gemini-3.1-flash-lite",
+                "api_key": "sk-private-test-key",
+            },
+        )
+        status = client.get("/api/v1/config/status")
+        cleared = client.delete("/api/v1/config/ai-provider")
+
+    assert saved.status_code == 200
+    assert status.json()["ai_provider_name"] == "gemini"
+    assert status.json()["ai_model"] == "gemini-3.1-flash-lite"
+    assert status.json()["ai_provider_source"] == "private_config"
+    assert "sk-private-test-key" not in status.text
+    assert cleared.json()["ai_provider_name"] == "deepseek"
+    assert cleared.json()["ai_model"] == "env-model"
+    assert cleared.json()["ai_provider_source"] == "environment"
 
 
 def test_config_can_save_resume_output_directory(tmp_path, monkeypatch) -> None:
