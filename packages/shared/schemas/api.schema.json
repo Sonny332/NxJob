@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "schemaVersion": {
-      "const": "0.1.0"
+      "const": "0.4.0"
     },
     "sponsorshipStatus": {
       "enum": [

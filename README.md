@@ -15,19 +15,22 @@ For non-technical users, NxJob should be distributed as:
 
 Use `docs/install-windows.md` for the installer path.
 
-Current MVP installer note: the Windows local-service package uses a PowerShell installer script and requires Python 3.11+ on the user's machine.
+Current MVP installer note: download the `NxJob-<version>.zip` release package, unzip it, and use the root `.bat` files for install, start, status, stop, and uninstall. Do not use GitHub's auto-generated source-code zip as the normal user install path.
 
-The package includes scripts to install, start in the background, check status, stop, and uninstall the local service.
+The Windows local-service package requires Python 3.11+ on the user's machine.
 
 ## MVP Scope
 
-The MVP focuses on three browser actions:
+The MVP focuses on three browser actions plus a lightweight tracking loop:
 
 - Analyze Sponsorship
 - Tailor Resume
 - Fill Form Answer
+- Record Application / Outcome from the Side Panel
 
 NxJob does not automatically submit applications, bypass verification, bulk scrape job sites, or perform no-confirmation mass applying.
+
+Tailor Resume uses a private Master Resume, a configured resume output folder, and the local service to generate DOCX and Markdown resume artifacts. Generated resumes and private configuration stay local.
 
 ## Developer Setup
 
@@ -52,11 +55,11 @@ npm run extension:build
 Build MVP release artifacts:
 
 ```powershell
-.\scripts\package\build-release.ps1 -Version 0.1.0
+.\scripts\package\build-release.ps1 -Version 0.4.0
 ```
 
 Validate existing release artifacts:
 
 ```powershell
-.\scripts\package\validate-release.ps1 -Version 0.1.0
+.\scripts\package\validate-release.ps1 -Version 0.4.0
 ```
