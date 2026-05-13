@@ -1,1 +1,1 @@
-export const API_SCHEMA_VERSION = "0.4.1";
+export const API_SCHEMA_VERSION = "0.4.2";

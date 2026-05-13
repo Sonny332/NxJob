@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 
 from fastapi.testclient import TestClient
 
@@ -73,8 +74,23 @@ def test_sponsorship_not_eligible_for_visa_sponsorship_uses_local_rules(
     assert body["ai_used"] is False
 
 
-def test_sponsorship_ambiguous_text_uses_ai_fallback_stub(tmp_path, monkeypatch) -> None:
+class FakeAiResponse:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def test_sponsorship_ambiguous_text_reports_missing_ai_config(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.delenv("NXJOB_AI_API_KEY", raising=False)
 
     with TestClient(create_app()) as client:
         job_id = _capture_job(client, "Candidates must be authorized to work in the United States.")
@@ -86,8 +102,68 @@ def test_sponsorship_ambiguous_text_uses_ai_fallback_stub(tmp_path, monkeypatch)
     body = response.json()
     assert response.status_code == 200
     assert body["sponsorship"]["status"] == "needs_confirmation"
+    assert body["ai_used"] is False
+    assert any(item["source"] == "ai_config_missing" for item in body["evidence"])
+
+
+def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("NXJOB_AI_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("NXJOB_AI_BASE_URL", "https://api.example.test/v1")
+    monkeypatch.setenv("NXJOB_AI_MODEL", "test-model")
+
+    def fake_urlopen(request, timeout):
+        request_body = json.loads(request.data.decode("utf-8"))
+        assert request.get_header("Authorization") == "Bearer sk-test-secret"
+        assert request_body["model"] == "test-model"
+        return FakeAiResponse(
+            {
+                "model": "test-model",
+                "usage": {"total_tokens": 123},
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "status": "likely_not_supports",
+                                    "confidence": 0.72,
+                                    "summary": "The JD requires work authorization but does not confirm sponsorship.",
+                                    "evidence": "Authorized to work in the United States.",
+                                    "risk_flags": ["Work authorization language is ambiguous."],
+                                    "questions_to_confirm": ["Can the employer sponsor this role?"],
+                                }
+                            )
+                        }
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Candidates must be authorized to work in the United States.")
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "likely_not_supports"
     assert body["ai_used"] is True
     assert any(item["source"] == "ai_inference" for item in body["evidence"])
+
+    with sqlite3.connect(db_path) as connection:
+        prompt_log = connection.execute(
+            "SELECT input_summary, model, provider, error FROM prompt_logs WHERE workflow_name = ?",
+            ("analyze_sponsorship",),
+        ).fetchone()
+
+    assert prompt_log == ("JD sponsorship indicators only; full JD not logged", "test-model", "openai", "")
+    assert "sk-test-secret" not in response.text
 
 
 def test_sponsorship_can_disable_ai_fallback(tmp_path, monkeypatch) -> None:

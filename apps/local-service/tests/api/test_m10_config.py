@@ -91,7 +91,7 @@ def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, 
             json={
                 "provider": "gemini",
                 "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-                "model": "gemini-3.1-flash-lite",
+                "model": "gemini-2.5-flash-lite",
                 "api_key": "sk-private-test-key",
             },
         )
@@ -100,7 +100,7 @@ def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, 
 
     assert saved.status_code == 200
     assert status.json()["ai_provider_name"] == "gemini"
-    assert status.json()["ai_model"] == "gemini-3.1-flash-lite"
+    assert status.json()["ai_model"] == "gemini-2.5-flash-lite"
     assert status.json()["ai_provider_source"] == "private_config"
     assert "sk-private-test-key" not in status.text
     assert cleared.json()["ai_provider_name"] == "deepseek"
@@ -125,3 +125,25 @@ def test_config_can_save_resume_output_directory(tmp_path, monkeypatch) -> None:
     assert body["resume_output_dir_configured"] is True
     assert body["resume_output_dir"] == str(output_dir)
     assert private_resume_output_path().exists()
+
+
+def test_config_normalizes_deepseek_v4_provider_aliases(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        saved = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "deepseek-v4-pro",
+                "base_url": "https://api.deepseek.com/v1",
+                "model": "deepseek-v4-pro",
+                "api_key": "sk-private-test-key",
+            },
+        )
+        status = client.get("/api/v1/config/status")
+
+    assert saved.status_code == 200
+    assert status.json()["ai_provider_name"] == "deepseek_v4_pro"
+    assert status.json()["ai_model"] == "deepseek-v4-pro"
+    assert "sk-private-test-key" not in status.text

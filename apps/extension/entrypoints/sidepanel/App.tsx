@@ -90,13 +90,25 @@ const AI_PROVIDER_PRESETS = {
   deepseek: {
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
-    model: "deepseek-chat",
-    help: "Use with a DeepSeek API key."
+    model: "deepseek-v4-flash",
+    help: "Default DeepSeek preset, using v4 Flash for fast resume and sponsorship workflows."
+  },
+  deepseek_v4_flash: {
+    label: "DeepSeek V4 Flash",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-v4-flash",
+    help: "Use with a DeepSeek API key when speed and cost matter most."
+  },
+  deepseek_v4_pro: {
+    label: "DeepSeek V4 Pro",
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-v4-pro",
+    help: "Use with a DeepSeek API key when resume quality matters more than speed."
   },
   gemini: {
     label: "Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-3.1-flash-lite",
+    model: "gemini-2.5-flash-lite",
     help: "Use with a Gemini API key. Default is Flash-Lite for non-grounded resume tailoring."
   },
   gemini_grounded: {

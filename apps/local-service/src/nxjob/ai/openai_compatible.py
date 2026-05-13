@@ -13,8 +13,10 @@ DEFAULT_BASE_URL = "https://api.openai.com/v1"
 PROVIDER_DEFAULTS = {
     "openai": ("https://api.openai.com/v1", "gpt-4.1-mini"),
     "openai_compatible": ("https://api.openai.com/v1", "gpt-4.1-mini"),
-    "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.1-flash-lite"),
+    "deepseek": ("https://api.deepseek.com/v1", "deepseek-v4-flash"),
+    "deepseek_v4_flash": ("https://api.deepseek.com/v1", "deepseek-v4-flash"),
+    "deepseek_v4_pro": ("https://api.deepseek.com/v1", "deepseek-v4-pro"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash-lite"),
     "gemini_grounded": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
     "openrouter": ("https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
 }

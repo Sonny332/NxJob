@@ -65,6 +65,8 @@ def test_openai_compatible_client_reads_json_object(monkeypatch) -> None:
         ("openai", "https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions"),
         ("deepseek", "", "https://api.deepseek.com/v1/chat/completions"),
         ("deepseek", "https://api.deepseek.com", "https://api.deepseek.com/v1/chat/completions"),
+        ("deepseek_v4_flash", "", "https://api.deepseek.com/v1/chat/completions"),
+        ("deepseek_v4_pro", "", "https://api.deepseek.com/v1/chat/completions"),
         ("gemini", "", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"),
         (
             "gemini",
@@ -87,6 +89,48 @@ def test_chat_completions_endpoint_normalizes_common_provider_base_urls(
     endpoint,
 ) -> None:
     assert _chat_completions_endpoint(base_url, provider) == endpoint
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_model"),
+    [
+        ("deepseek", "deepseek-v4-flash"),
+        ("deepseek_v4_flash", "deepseek-v4-flash"),
+        ("deepseek_v4_pro", "deepseek-v4-pro"),
+        ("gemini", "gemini-2.5-flash-lite"),
+        ("gemini_grounded", "gemini-2.5-flash"),
+    ],
+)
+def test_openai_compatible_client_uses_provider_default_models(
+    monkeypatch,
+    provider,
+    expected_model,
+) -> None:
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(
+            {
+                "model": expected_model,
+                "usage": {},
+                "choices": [{"message": {"content": "{\"ok\": true}"}}],
+            }
+        )
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    request_json_object(
+        AiProviderConfig(
+            provider=provider,
+            base_url="",
+            model="",
+            api_key="sk-secret",
+        ),
+        [{"role": "user", "content": "Return JSON."}],
+    )
+
+    assert captured["payload"]["model"] == expected_model
 
 
 @pytest.mark.parametrize(
@@ -137,7 +181,7 @@ def test_openai_compatible_client_explains_retryable_provider_unavailable(monkey
             AiProviderConfig(
                 provider="gemini",
                 base_url="",
-                model="gemini-3.1-flash-lite",
+                model="gemini-2.5-flash-lite",
                 api_key="sk-secret",
             ),
             [{"role": "user", "content": "Return JSON."}],
