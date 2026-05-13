@@ -5,17 +5,24 @@ import {
   checkConfigStatus,
   checkHealth,
   clearAiProvider,
+  createApplication,
+  createOutcome,
   draftFormAnswer,
   getResumeArtifactUrl,
   getJobLead,
   getWorkflowResults,
+  listSuccessReferences,
   saveAiProvider,
   saveMasterResume,
   saveResumeOutputDirectory,
   submitResumeFeedback,
+  type ApplicationMethod,
+  type ApplicationRecord,
   type ConfigStatusResponse,
   type FormAnswerDraftResponse,
   type JobLeadRecord,
+  type OutcomeSignalResponse,
+  type OutcomeType,
   type ResumeFeedbackRating,
   type ResumeTailorResponse,
   type SponsorshipAnalyzeResponse,
@@ -40,13 +47,16 @@ import type { WorkflowMessageResponse } from "../../src/lib/workflow-messages";
 
 type ServiceState = "checking" | "online" | "offline";
 type WorkflowKey = "sponsorship" | "resume" | "formAnswer";
+type TrackingStatus = "idle" | "running";
 type FeedbackActionRating = Exclude<ResumeFeedbackRating, "success_reference_candidate">;
+type SidePanelOutcomeType = Extract<OutcomeType, "positive_reply" | "screen" | "interview" | "rejection">;
 const FEEDBACK_ACTIONS: FeedbackActionRating[] = [
   "good_fit",
   "needs_stronger_match",
   "too_generic",
   "save_success_candidate"
 ];
+const OUTCOME_ACTIONS: SidePanelOutcomeType[] = ["positive_reply", "screen", "interview", "rejection"];
 
 const FEEDBACK_LABELS: Record<ResumeFeedbackRating, string> = {
   good_fit: "Good fit",
@@ -54,6 +64,20 @@ const FEEDBACK_LABELS: Record<ResumeFeedbackRating, string> = {
   too_generic: "Too generic",
   save_success_candidate: "Save as success candidate",
   success_reference_candidate: "Save as success candidate"
+};
+
+const OUTCOME_LABELS: Record<SidePanelOutcomeType, string> = {
+  positive_reply: "Positive reply",
+  screen: "Screen",
+  interview: "Interview",
+  rejection: "Rejection"
+};
+
+const APPLICATION_STATUS_BY_OUTCOME: Record<SidePanelOutcomeType, ApplicationRecord["status"]> = {
+  positive_reply: "replied",
+  screen: "interviewing",
+  interview: "interviewing",
+  rejection: "rejected"
 };
 
 const AI_PROVIDER_PRESETS = {
@@ -109,6 +133,10 @@ export function App() {
   const [apiModel, setApiModel] = useState<string>(AI_PROVIDER_PRESETS.openai.model);
   const [apiKey, setApiKey] = useState("");
   const [resumeOutputDir, setResumeOutputDir] = useState("");
+  const [applicationsByJobId, setApplicationsByJobId] = useState<Record<string, ApplicationRecord>>({});
+  const [outcomesByApplicationId, setOutcomesByApplicationId] = useState<Record<string, OutcomeSignalResponse>>({});
+  const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
+  const [successReferenceCount, setSuccessReferenceCount] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,6 +366,67 @@ export function App() {
     }
   }
 
+  async function recordApplication(job: JobWorkspaceRecord, resume: ResumeTailorResponse) {
+    if (trackingStatus === "running") return;
+
+    setTrackingStatus("running");
+    try {
+      const response = await createApplication({
+        jobLeadId: job.jobLead.id,
+        resumeVersionId: resume.resume_version.id,
+        applicationUrl: job.pageUrl || job.jobLead.source_url,
+        applicationMethod: inferApplicationMethod(job),
+        submittedByUser: true
+      });
+      setApplicationsByJobId((current) => ({
+        ...current,
+        [job.id]: response.application
+      }));
+      setMessage(`Application recorded: ${response.application.id} (${response.application.status}).`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to record application.");
+    } finally {
+      setTrackingStatus("idle");
+    }
+  }
+
+  async function recordOutcome(job: JobWorkspaceRecord, application: ApplicationRecord, outcomeType: SidePanelOutcomeType) {
+    if (trackingStatus === "running") return;
+
+    setTrackingStatus("running");
+    try {
+      const response = await createOutcome({
+        applicationId: application.id,
+        jobLeadId: job.jobLead.id,
+        outcomeType,
+        evidenceUrl: application.application_url
+      });
+      setOutcomesByApplicationId((current) => ({
+        ...current,
+        [application.id]: response
+      }));
+      setApplicationsByJobId((current) => ({
+        ...current,
+        [job.id]: {
+          ...application,
+          status: APPLICATION_STATUS_BY_OUTCOME[outcomeType]
+        }
+      }));
+      if (response.success_reference.created) {
+        const references = await listSuccessReferences({ limit: 100 });
+        setSuccessReferenceCount(references.success_references.length);
+      }
+      const suffix = response.success_reference.created
+        ? ` Success reference created: ${response.success_reference.id}.`
+        : "";
+      setMessage(`Outcome recorded: ${OUTCOME_LABELS[outcomeType]}.${suffix}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to record outcome.");
+    } finally {
+      setTrackingStatus("idle");
+    }
+  }
+
   function markWorkflow(jobId: string, key: WorkflowKey, status: "running") {
     setWorkspace((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
@@ -531,6 +620,12 @@ export function App() {
               onDraftAnswer={() => runFormAnswer(focusedJob)}
               onFillAnswer={confirmFill}
               onFeedback={(rating) => saveFeedback(focusedJob, rating)}
+              application={applicationsByJobId[focusedJob.id] ?? null}
+              outcome={applicationsByJobId[focusedJob.id] ? outcomesByApplicationId[applicationsByJobId[focusedJob.id].id] ?? null : null}
+              trackingBusy={trackingStatus === "running"}
+              successReferenceCount={successReferenceCount}
+              onRecordApplication={(resume) => recordApplication(focusedJob, resume)}
+              onRecordOutcome={(application, outcomeType) => recordOutcome(focusedJob, application, outcomeType)}
             />
           ) : (
             <p className="empty">Capture a job to begin.</p>
@@ -553,6 +648,12 @@ function JobDetail(props: {
   onDraftAnswer: () => void;
   onFillAnswer: (answer: string) => void;
   onFeedback: (rating: ResumeFeedbackRating) => void;
+  application: ApplicationRecord | null;
+  outcome: OutcomeSignalResponse | null;
+  trackingBusy: boolean;
+  successReferenceCount: number | null;
+  onRecordApplication: (resume: ResumeTailorResponse) => void;
+  onRecordOutcome: (application: ApplicationRecord, outcomeType: SidePanelOutcomeType) => void;
 }) {
   const { job } = props;
   const sponsorship = job.workflows.sponsorship.result;
@@ -593,7 +694,20 @@ function JobDetail(props: {
         </button>
       </div>
 
-      {resume ? <ResumeResult result={resume} onFeedback={props.onFeedback} /> : <WorkflowMessage run={job.workflows.resume} />}
+      {resume ? (
+        <ResumeResult
+          result={resume}
+          application={props.application}
+          outcome={props.outcome}
+          trackingBusy={props.trackingBusy}
+          successReferenceCount={props.successReferenceCount}
+          onFeedback={props.onFeedback}
+          onRecordApplication={props.onRecordApplication}
+          onRecordOutcome={props.onRecordOutcome}
+        />
+      ) : (
+        <WorkflowMessage run={job.workflows.resume} />
+      )}
 
       <div className="action-row">
         <button type="button" disabled={job.workflows.formAnswer.status === "running"} onClick={props.onDraftAnswer}>
@@ -659,7 +773,13 @@ function SponsorshipResult({ result }: { result: SponsorshipAnalyzeResponse }) {
 
 function ResumeResult(props: {
   result: ResumeTailorResponse;
+  application: ApplicationRecord | null;
+  outcome: OutcomeSignalResponse | null;
+  trackingBusy: boolean;
+  successReferenceCount: number | null;
   onFeedback: (rating: ResumeFeedbackRating) => void;
+  onRecordApplication: (resume: ResumeTailorResponse) => void;
+  onRecordOutcome: (application: ApplicationRecord, outcomeType: SidePanelOutcomeType) => void;
 }) {
   const { result } = props;
   const docxUrl = getResumeArtifactUrl(result.resume_version.id, "docx");
@@ -707,6 +827,78 @@ function ResumeResult(props: {
           </button>
         ))}
       </div>
+      <ApplicationTracking
+        resume={result}
+        application={props.application}
+        outcome={props.outcome}
+        busy={props.trackingBusy}
+        successReferenceCount={props.successReferenceCount}
+        onRecordApplication={props.onRecordApplication}
+        onRecordOutcome={props.onRecordOutcome}
+      />
+    </section>
+  );
+}
+
+function ApplicationTracking(props: {
+  resume: ResumeTailorResponse;
+  application: ApplicationRecord | null;
+  outcome: OutcomeSignalResponse | null;
+  busy: boolean;
+  successReferenceCount: number | null;
+  onRecordApplication: (resume: ResumeTailorResponse) => void;
+  onRecordOutcome: (application: ApplicationRecord, outcomeType: SidePanelOutcomeType) => void;
+}) {
+  return (
+    <section className="tracking-block" aria-label="Application tracking">
+      <div className="result-heading">
+        <div>
+          <strong>Application</strong>
+          <span>{props.application ? props.application.status : "Not recorded"}</span>
+        </div>
+        {props.application ? <span className="id-pill">{props.application.id}</span> : null}
+      </div>
+      {props.application ? (
+        <>
+          <div className="compact-list">
+            <span>Method</span>
+            <p>{props.application.application_method}</p>
+          </div>
+          <div className="compact-list">
+            <span>URL</span>
+            <p>{props.application.application_url}</p>
+          </div>
+          <div className="feedback-grid">
+            {OUTCOME_ACTIONS.map((outcomeType) => (
+              <button
+                key={outcomeType}
+                type="button"
+                className="secondary-button"
+                disabled={props.busy}
+                onClick={() => props.onRecordOutcome(props.application as ApplicationRecord, outcomeType)}
+              >
+                {OUTCOME_LABELS[outcomeType]}
+              </button>
+            ))}
+          </div>
+          {props.outcome ? (
+            <small>
+              Outcome id {props.outcome.outcome.id} · {OUTCOME_LABELS[props.outcome.outcome.outcome_type as SidePanelOutcomeType]}
+              {props.outcome.success_reference.created ? ` · Success reference ${props.outcome.success_reference.id}` : ""}
+              {props.successReferenceCount !== null ? ` · ${props.successReferenceCount} references total` : ""}
+            </small>
+          ) : (
+            <small>Record replies or interview signals after they happen. NxJob does not submit forms.</small>
+          )}
+        </>
+      ) : (
+        <>
+          <button type="button" disabled={props.busy} onClick={() => props.onRecordApplication(props.resume)}>
+            {props.busy ? "Recording..." : "Record Application"}
+          </button>
+          <small>Use after you manually submit the application. No external page is clicked.</small>
+        </>
+      )}
     </section>
   );
 }
@@ -809,6 +1001,11 @@ function sponsorshipLabel(status: SponsorshipStatus): string {
   return labels[status];
 }
 
+function inferApplicationMethod(job: JobWorkspaceRecord): ApplicationMethod {
+  if (job.jobLead.source_site === "company_ats") return "company_ats";
+  return "manual";
+}
+
 function layoutBudgetText(layoutBudget: Record<string, unknown>): string {
   const body = layoutBudget.body_lines;
   const maxBody = layoutBudget.max_body_lines;
@@ -816,6 +1013,7 @@ function layoutBudgetText(layoutBudget: Record<string, unknown>): string {
   if (typeof body === "number" && typeof maxBody === "number" && typeof targetMin === "number") {
     return `${body}/${maxBody} estimated body lines, target ${targetMin}-${maxBody}`;
   }
+
   if (typeof body === "number" && typeof maxBody === "number") {
     return `${body}/${maxBody} estimated body lines`;
   }

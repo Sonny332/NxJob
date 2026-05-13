@@ -72,6 +72,29 @@ def test_rejection_outcome_does_not_create_success_reference(tmp_path, monkeypat
     assert references.json()["success_references"] == []
 
 
+def test_application_accepts_side_panel_manual_method(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        resume_id = _create_resume_version(client, job_id)
+
+        response = client.post(
+            "/api/v1/applications",
+            json={
+                "job_lead_id": job_id,
+                "resume_version_id": resume_id,
+                "application_url": "https://example.com/apply/manual",
+                "application_method": "manual",
+                "submitted_by_user": True,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["application"]["application_method"] == "manual"
+    assert response.json()["application"]["submitted_by_user"] is True
+
+
 def test_positive_outcome_without_application_uses_latest_resume_version(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
 

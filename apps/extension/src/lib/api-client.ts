@@ -10,6 +10,28 @@ export type HealthResponse = {
 };
 
 export type SourceSite = "linkedin" | "indeed" | "company_ats" | "other";
+export type ApplicationMethod =
+  | "easy_apply"
+  | "external_ats"
+  | "email"
+  | "other"
+  | "linkedin_easy_apply"
+  | "company_ats"
+  | "manual";
+export type ApplicationStatus =
+  | "captured"
+  | "reviewing"
+  | "skipped"
+  | "tailored"
+  | "ready_to_apply"
+  | "applied"
+  | "replied"
+  | "interviewing"
+  | "offer"
+  | "rejected"
+  | "closed";
+export type OutcomeType = "positive_reply" | "screen" | "interview" | "offer" | "rejection" | "no_response" | "closed";
+export type OutcomeSource = "email" | "manual" | "recruiter_message" | "calendar" | "other";
 
 export type JobLeadRecord = {
   id: string;
@@ -143,6 +165,65 @@ export type ResumeTailorFeedbackResponse = {
   };
 };
 
+export type ApplicationRecord = {
+  id: string;
+  job_lead_id: string;
+  resume_version_id: string | null;
+  applied_at: string;
+  application_url: string;
+  application_method: ApplicationMethod;
+  status: ApplicationStatus;
+  submitted_by_user: boolean;
+  follow_up_at: string;
+  user_notes: string;
+};
+
+export type ApplicationResponse = {
+  trace_id: string;
+  application: ApplicationRecord;
+};
+
+export type OutcomeSignalRecord = {
+  id: string;
+  application_id: string;
+  job_lead_id: string;
+  outcome_type: OutcomeType;
+  outcome_at: string;
+  source: OutcomeSource;
+  evidence_text: string;
+  evidence_url: string;
+  user_notes: string;
+  created_at: string;
+};
+
+export type OutcomeSignalResponse = {
+  trace_id: string;
+  outcome: OutcomeSignalRecord;
+  success_reference: {
+    created: boolean;
+    id: string;
+  };
+};
+
+export type SuccessReferenceRecord = {
+  id: string;
+  application_id: string;
+  job_lead_id: string;
+  resume_version_id: string;
+  outcome_type: string;
+  outcome_at: string;
+  source: string;
+  search_query: string;
+  effective_keywords: string[];
+  effective_bullets: string[];
+  user_notes: string;
+};
+
+export type SuccessReferenceListResponse = {
+  trace_id: string;
+  success_references: SuccessReferenceRecord[];
+};
+
 export type FormAnswerDraftResponse = {
   trace_id: string;
   draft: {
@@ -213,6 +294,86 @@ export async function getWorkflowResults(jobLeadId: string): Promise<WorkflowRes
   }
 
   return response.json() as Promise<WorkflowResultsResponse>;
+}
+
+export async function createApplication(payload: {
+  jobLeadId: string;
+  resumeVersionId?: string | null;
+  applicationUrl: string;
+  applicationMethod: ApplicationMethod;
+  submittedByUser?: boolean;
+  userNotes?: string;
+}): Promise<ApplicationResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/applications`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: payload.jobLeadId,
+      resume_version_id: payload.resumeVersionId ?? null,
+      application_url: payload.applicationUrl,
+      application_method: payload.applicationMethod,
+      submitted_by_user: payload.submittedByUser ?? true,
+      user_notes: payload.userNotes ?? ""
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ApplicationResponse>;
+}
+
+export async function createOutcome(payload: {
+  applicationId?: string;
+  jobLeadId: string;
+  outcomeType: OutcomeType;
+  source?: OutcomeSource;
+  evidenceText?: string;
+  evidenceUrl?: string;
+  userNotes?: string;
+}): Promise<OutcomeSignalResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/outcomes`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      application_id: payload.applicationId ?? "",
+      job_lead_id: payload.jobLeadId,
+      outcome_type: payload.outcomeType,
+      source: payload.source ?? "manual",
+      evidence_text: payload.evidenceText ?? "",
+      evidence_url: payload.evidenceUrl ?? "",
+      user_notes: payload.userNotes ?? ""
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<OutcomeSignalResponse>;
+}
+
+export async function listSuccessReferences(options: { limit?: number } = {}): Promise<SuccessReferenceListResponse> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString();
+  const response = await fetch(`${API_BASE_URL}/api/v1/success-references${query ? `?${query}` : ""}`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SuccessReferenceListResponse>;
 }
 
 export async function analyzeSponsorship(

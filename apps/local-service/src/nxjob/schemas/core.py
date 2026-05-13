@@ -19,7 +19,15 @@ ApplicationStatus = Literal[
 ]
 
 SourceSite = Literal["linkedin", "indeed", "company_ats", "other"]
-ApplicationMethod = Literal["easy_apply", "external_ats", "email", "other"]
+ApplicationMethod = Literal[
+    "easy_apply",
+    "external_ats",
+    "email",
+    "other",
+    "linkedin_easy_apply",
+    "company_ats",
+    "manual",
+]
 ResumeFormat = Literal["docx"]
 WorkflowName = Literal[
     "analyze_sponsorship",
