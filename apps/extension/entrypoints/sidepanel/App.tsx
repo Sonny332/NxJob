@@ -6,6 +6,7 @@ import {
   checkHealth,
   clearAiProvider,
   draftFormAnswer,
+  getResumeArtifactUrl,
   getJobLead,
   getWorkflowResults,
   saveAiProvider,
@@ -39,12 +40,20 @@ import type { WorkflowMessageResponse } from "../../src/lib/workflow-messages";
 
 type ServiceState = "checking" | "online" | "offline";
 type WorkflowKey = "sponsorship" | "resume" | "formAnswer";
+type FeedbackActionRating = Exclude<ResumeFeedbackRating, "success_reference_candidate">;
+const FEEDBACK_ACTIONS: FeedbackActionRating[] = [
+  "good_fit",
+  "needs_stronger_match",
+  "too_generic",
+  "save_success_candidate"
+];
 
 const FEEDBACK_LABELS: Record<ResumeFeedbackRating, string> = {
   good_fit: "Good fit",
   needs_stronger_match: "Needs stronger match",
   too_generic: "Too generic",
-  success_reference_candidate: "Save as success reference candidate"
+  save_success_candidate: "Save as success candidate",
+  success_reference_candidate: "Save as success candidate"
 };
 
 const AI_PROVIDER_PRESETS = {
@@ -322,7 +331,8 @@ export function App() {
         resumeVersionId: resume.resume_version.id,
         rating
       });
-      setMessage(`Resume feedback saved: ${FEEDBACK_LABELS[rating]}.`);
+      const suffix = rating === "save_success_candidate" ? " Candidate status saved; not a confirmed outcome." : "";
+      setMessage(`Resume feedback saved: ${FEEDBACK_LABELS[rating]}.${suffix}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save resume feedback.");
     }
@@ -652,17 +662,13 @@ function ResumeResult(props: {
   onFeedback: (rating: ResumeFeedbackRating) => void;
 }) {
   const { result } = props;
+  const docxUrl = getResumeArtifactUrl(result.resume_version.id, "docx");
+  const markdownUrl = getResumeArtifactUrl(result.resume_version.id, "markdown");
   return (
     <section className="result-block">
       <strong>Tailored Resume</strong>
-      <div className="compact-list">
-        <span>DOCX</span>
-        <p>{result.docx_path || result.resume_version.file_path}</p>
-      </div>
-      <div className="compact-list">
-        <span>Markdown</span>
-        <p>{result.markdown_path || "Not generated"}</p>
-      </div>
+      <ArtifactEntry label="DOCX" url={docxUrl} localPath={result.docx_path || result.resume_version.file_path} />
+      <ArtifactEntry label="Markdown" url={markdownUrl} localPath={result.markdown_path || "Not generated"} />
       <div className="compact-list">
         <span>Filename</span>
         <p>{result.filename_base || "Not available"}</p>
@@ -695,13 +701,37 @@ function ResumeResult(props: {
         </ul>
       ) : null}
       <div className="feedback-grid">
-        {(Object.keys(FEEDBACK_LABELS) as ResumeFeedbackRating[]).map((rating) => (
+        {FEEDBACK_ACTIONS.map((rating) => (
           <button key={rating} type="button" className="secondary-button" onClick={() => props.onFeedback(rating)}>
             {FEEDBACK_LABELS[rating]}
           </button>
         ))}
       </div>
     </section>
+  );
+}
+
+function ArtifactEntry(props: { label: string; url: string; localPath: string }) {
+  return (
+    <div className="compact-list">
+      <span>{props.label}</span>
+      <p>
+        <a href={props.url} target="_blank" rel="noreferrer">
+          HTTP artifact
+        </a>
+        {" · "}
+        <button type="button" className="text-button" onClick={() => copyText(props.url)}>
+          Copy link
+        </button>
+      </p>
+      <p>
+        {props.localPath}
+        {" · "}
+        <button type="button" className="text-button" onClick={() => copyText(props.localPath)}>
+          Copy path
+        </button>
+      </p>
+    </div>
   );
 }
 
@@ -793,10 +823,27 @@ function layoutBudgetText(layoutBudget: Record<string, unknown>): string {
 }
 
 function qualityCheckText(qualityChecks: Record<string, unknown>): string {
-  const checks = [
-    qualityChecks.page_fill_target_met === true ? "page fill ok" : "",
-    qualityChecks.contact_line_single_line === true ? "contact one line" : "",
-    qualityChecks.education_years_present === true ? "education years ok" : "",
-  ].filter(Boolean);
-  return checks.join(" · ") || "Not available";
+  return [
+    qualityStatus("one_page_budget_ok", "one-page budget", qualityChecks),
+    qualityStatus("page_fill_target_met", "page fill", qualityChecks),
+    qualityStatus("contact_line_single_line", "contact one line", qualityChecks),
+    qualityStatus("education_years_present", "education years", qualityChecks),
+    qualityStatus("experience_timeline_preserved", "experience timeline", qualityChecks)
+  ].join(" · ");
+}
+
+function qualityStatus(key: string, label: string, qualityChecks: Record<string, unknown>): string {
+  const value = qualityChecks[key];
+  if (value === true) return `${label}: pass`;
+  if (value === false) return `${label}: fail`;
+  return `${label}: unknown`;
+}
+
+async function copyText(value: string) {
+  if (!value || value === "Not generated") return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    // The visible link/path remains available when clipboard permission is unavailable.
+  }
 }

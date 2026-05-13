@@ -611,6 +611,11 @@ def create_resume_tailor_feedback(
     connection: sqlite3.Connection,
     payload: ResumeTailorFeedbackCreate,
 ) -> ResumeTailorFeedbackRecord:
+    candidate_status = (
+        "saved_as_success_reference_candidate"
+        if payload.rating in {"save_success_candidate", "success_reference_candidate"}
+        else ""
+    )
     record = ResumeTailorFeedbackRecord(
         id=new_id("rfb"),
         job_lead_id=payload.job_lead_id,
@@ -618,6 +623,7 @@ def create_resume_tailor_feedback(
         created_at=utc_now(),
         rating=payload.rating,
         user_notes=payload.user_notes,
+        candidate_status=candidate_status,
     )
     connection.execute(
         """

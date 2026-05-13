@@ -127,6 +127,7 @@ export type ResumeFeedbackRating =
   | "good_fit"
   | "needs_stronger_match"
   | "too_generic"
+  | "save_success_candidate"
   | "success_reference_candidate";
 
 export type ResumeTailorFeedbackResponse = {
@@ -138,6 +139,7 @@ export type ResumeTailorFeedbackResponse = {
     created_at: string;
     rating: ResumeFeedbackRating;
     user_notes: string;
+    candidate_status: string;
   };
 };
 
@@ -264,6 +266,10 @@ export async function tailorResume(
   }
 
   return response.json() as Promise<ResumeTailorResponse>;
+}
+
+export function getResumeArtifactUrl(resumeVersionId: string, artifact: "docx" | "markdown"): string {
+  return `${API_BASE_URL}/api/v1/resume-versions/${encodeURIComponent(resumeVersionId)}/artifacts/${artifact}`;
 }
 
 export async function checkConfigStatus(): Promise<ConfigStatusResponse> {

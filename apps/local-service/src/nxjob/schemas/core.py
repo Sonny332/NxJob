@@ -230,6 +230,7 @@ ResumeFeedbackRating = Literal[
     "good_fit",
     "needs_stronger_match",
     "too_generic",
+    "save_success_candidate",
     "success_reference_candidate",
 ]
 
@@ -244,6 +245,7 @@ class ResumeTailorFeedbackCreate(BaseModel):
 class ResumeTailorFeedbackRecord(ResumeTailorFeedbackCreate):
     id: str
     created_at: str
+    candidate_status: str = ""
 
 
 class ResumeTailorFeedbackResponse(TraceResponse):

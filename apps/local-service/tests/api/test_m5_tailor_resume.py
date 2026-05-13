@@ -594,6 +594,43 @@ def test_tailor_resume_feedback_is_saved(tmp_path, monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["feedback"]["id"].startswith("rfb_")
     assert response.json()["feedback"]["rating"] == "good_fit"
+    assert response.json()["feedback"]["candidate_status"] == ""
+
+
+def test_tailor_resume_feedback_marks_success_candidate_status(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, "Backend automation role using Python APIs.")
+        tailored = client.post(
+            "/api/v1/resumes/tailor",
+            json={
+                "job_lead_id": job_id,
+                "master_resume_bullets": [
+                    {
+                        "id": "bullet_api",
+                        "text": "Automated API workflows with Python services.",
+                        "tags": ["Python", "API"],
+                    }
+                ],
+            },
+        )
+        response = client.post(
+            "/api/v1/resumes/feedback",
+            json={
+                "job_lead_id": job_id,
+                "resume_version_id": tailored.json()["resume_version"]["id"],
+                "rating": "save_success_candidate",
+                "user_notes": "Possible future reference if this gets a screen.",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["feedback"]["rating"] == "save_success_candidate"
+    assert body["feedback"]["candidate_status"] == "saved_as_success_reference_candidate"
+    assert "Possible future reference" in body["feedback"]["user_notes"]
 
 
 def _capture_job(client: TestClient, jd_text: str) -> str:

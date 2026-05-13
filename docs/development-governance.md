@@ -129,6 +129,24 @@ Avoid unnecessary context and planning overhead:
 
 Required exception: before changing architecture, schema, privacy, release, worktree, agent, or governance rules, read the relevant rule documents first.
 
+## Long-running Task and Repeated-error Handling
+
+Long-running agent or command work must have an explicit timeout and fallback.
+
+- Do not wait indefinitely for a sub-agent, test command, packaging command, or GitHub operation.
+- For normal checks, use short timeouts first. For expensive commands, state why the longer timeout is needed.
+- If a sub-agent does not return useful status within the timeout, stop waiting, inspect local state, and either close the sub-agent or continue with the controller.
+- If a command fails twice with the same class of error, stop repeating it and switch to systematic debugging: identify the failing layer, form one hypothesis, and test that hypothesis with the smallest command.
+- If a command appears to hang, check whether useful work has already completed before retrying. Record the last successful command and avoid rerunning broad suites unnecessarily.
+- At handoff, report any interrupted or closed sub-agents, known background processes, and whether the worktree is clean.
+
+Default timeout guidance:
+
+- Quick file, Git, type, and unit-test checks: 30-120 seconds.
+- Local service startup, packaging, or release validation: 2-10 minutes with progress updates.
+- Sub-agent review or implementation: wait once with a bounded timeout, then poll or close if no status is returned.
+- Anything still running after 30 minutes requires an explicit status update and a decision to continue, close, or replace the task path.
+
 ## Existing Rule Handling
 
 When a similar rule already exists, merge instead of duplicating.
