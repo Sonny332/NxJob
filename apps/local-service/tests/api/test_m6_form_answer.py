@@ -71,6 +71,54 @@ def test_draft_answer_uses_resume_bullets_for_open_question(tmp_path, monkeypatc
     assert body["draft"]["risk_flags"]
 
 
+def test_draft_answers_handles_multiple_fields_without_private_prompt_payloads(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "nxjob.sqlite3"
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answers",
+            json={
+                "job_lead_id": job_id,
+                "fields": [
+                    {
+                        "field_id": "field_email",
+                        "label": "Email",
+                        "placeholder": "email@example.com",
+                        "input_type": "email",
+                    },
+                    {
+                        "field_id": "field_why",
+                        "label": "Why are you interested in this role?",
+                        "surrounding_text": "Tell us why this automation platform role is a fit.",
+                        "input_type": "textarea",
+                    },
+                ],
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is True
+    assert len(body["drafts"]) == 2
+    assert body["drafts"][0]["answer"] == "candidate@example.com"
+    assert "FastAPI" in body["drafts"][1]["answer"]
+    assert "Review every answer" in body["warnings"][0]
+
+    with sqlite3.connect(db_path) as connection:
+        prompt_rows = connection.execute(
+            "SELECT input_summary FROM prompt_logs WHERE workflow_name = ?",
+            ("draft_form_answer_from_resume_bullets",),
+        ).fetchall()
+
+    joined = "\n".join(row[0] for row in prompt_rows)
+    assert "candidate@example.com" not in joined
+    assert "Automation platform role using Python" not in joined
+
+
 def test_tailor_resume_can_load_private_master_resume(tmp_path, monkeypatch) -> None:
     master_path = _write_master_resume(tmp_path)
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))

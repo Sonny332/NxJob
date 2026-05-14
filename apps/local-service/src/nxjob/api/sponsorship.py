@@ -66,7 +66,15 @@ def analyze_sponsorship_endpoint(payload: SponsorshipAnalyzeRequest) -> Sponsors
         trace_id = new_trace_id()
         analysis = analyze_sponsorship(payload, jd_text)
         ai_config = read_ai_provider_config() if _should_use_ai(payload, analysis) else None
-        _ai_configured, _ai_provider_name, _ai_model, ai_provider_source = read_ai_provider_status()
+        (
+            _ai_configured,
+            _ai_provider_name,
+            _ai_model,
+            _ai_reasoning_effort,
+            _ai_profile_id,
+            _ai_profile_display_name,
+            ai_provider_source,
+        ) = read_ai_provider_status()
         prompt_log_payload: PromptLogCreate | None = None
         if _should_use_ai(payload, analysis):
             if ai_config is None:

@@ -82,7 +82,15 @@ def tailor_resume_endpoint(payload: ResumeTailorRequest) -> ResumeTailorResponse
             payload.success_reference_limit,
         )
         ai_config = read_ai_provider_config()
-        _ai_configured, _ai_provider_name, _ai_model, ai_provider_source = read_ai_provider_status()
+        (
+            _ai_configured,
+            _ai_provider_name,
+            _ai_model,
+            _ai_reasoning_effort,
+            _ai_profile_id,
+            _ai_profile_display_name,
+            ai_provider_source,
+        ) = read_ai_provider_status()
         cache_key = workflow_cache_key(
             WORKFLOW_NAME,
             "v3",

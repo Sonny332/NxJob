@@ -23,3 +23,4 @@
 - Do not pass path-valued arguments through a manually joined `Start-Process -ArgumentList` string. Prefer installed packages, environment variables, splatted argument arrays for direct invocation, or a tested escaping helper.
 - Local service startup must not depend on `uvicorn --app-dir <path with spaces>` in background mode; use the venv-installed `nxjob` package so user profile paths are not parsed as CLI arguments.
 - Long-running Codex work must use bounded waits. If the UI appears stuck, refresh the session view once, inspect command/sub-agent status, and continue or close stale agents instead of waiting indefinitely.
+- When reporting sub-agents in branch details or handoff summaries, include nickname, assigned role, model/version when known, thinking/reasoning effort, and current state.

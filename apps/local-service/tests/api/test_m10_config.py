@@ -61,9 +61,12 @@ def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_p
                 "base_url": "https://api.example.test/v1",
                 "model": "test-model",
                 "api_key": "sk-test-secret",
+                "display_name": "Test OpenAI",
+                "reasoning_effort": "high",
             },
         )
         status = client.get("/api/v1/config/status")
+        profiles = client.get("/api/v1/config/ai-profiles")
         cleared = client.delete("/api/v1/config/ai-provider")
 
     assert master.status_code == 200
@@ -73,6 +76,11 @@ def test_config_can_save_master_resume_and_ai_provider_without_echoing_key(tmp_p
     assert status.json()["master_resume_configured"] is True
     assert status.json()["ai_provider_configured"] is True
     assert status.json()["ai_provider_source"] == "private_config"
+    assert status.json()["ai_profile_display_name"] == "Test OpenAI"
+    assert status.json()["ai_reasoning_effort"] == "high"
+    assert profiles.status_code == 200
+    assert profiles.json()["profiles"][0]["display_name"] == "Test OpenAI"
+    assert "sk-test-secret" not in profiles.text
     assert private_master_resume_path().exists()
     assert private_ai_provider_path().exists() is False
     assert cleared.json()["ai_provider_configured"] is False
@@ -106,6 +114,53 @@ def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, 
     assert cleared.json()["ai_provider_name"] == "deepseek"
     assert cleared.json()["ai_model"] == "env-model"
     assert cleared.json()["ai_provider_source"] == "environment"
+
+
+def test_config_can_switch_between_saved_ai_profiles(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("NXJOB_AI_API_KEY", raising=False)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        first = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4.1-mini",
+                "api_key": "sk-first",
+                "display_name": "OpenAI mini",
+                "reasoning_effort": "low",
+            },
+        )
+        second = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "deepseek-v4-pro",
+                "base_url": "https://api.deepseek.com/v1",
+                "model": "deepseek-v4-pro",
+                "api_key": "sk-second",
+                "display_name": "DeepSeek Pro",
+                "reasoning_effort": "high",
+            },
+        )
+        profiles = client.get("/api/v1/config/ai-profiles")
+        first_profile_id = next(
+            profile["id"] for profile in profiles.json()["profiles"] if profile["display_name"] == "OpenAI mini"
+        )
+        activated = client.post(f"/api/v1/config/ai-profiles/{first_profile_id}/activate")
+        status = client.get("/api/v1/config/status")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert profiles.status_code == 200
+    assert len(profiles.json()["profiles"]) == 2
+    assert "sk-first" not in profiles.text
+    assert "sk-second" not in profiles.text
+    assert activated.status_code == 200
+    assert status.json()["ai_profile_display_name"] == "OpenAI mini"
+    assert status.json()["ai_model"] == "gpt-4.1-mini"
+    assert status.json()["ai_reasoning_effort"] == "low"
 
 
 def test_config_can_save_resume_output_directory(tmp_path, monkeypatch) -> None:

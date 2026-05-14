@@ -1,16 +1,20 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  activateAiProviderProfile,
   captureJobLead,
   checkConfigStatus,
   checkHealth,
   clearAiProvider,
   createApplication,
   createOutcome,
+  deleteAiProviderProfile,
   draftFormAnswer,
+  draftFormAnswers,
   getResumeArtifactUrl,
   getJobLead,
   getWorkflowResults,
+  listAiProviderProfiles,
   listApplications,
   listOutcomes,
   listSuccessReferences,
@@ -20,8 +24,10 @@ import {
   submitResumeFeedback,
   type ApplicationMethod,
   type ApplicationRecord,
+  type AiProviderProfileRecord,
   type ConfigStatusResponse,
   type FormAnswerDraftResponse,
+  type FormAnswerDraftsResponse,
   type JobLeadRecord,
   type OutcomeSignalResponse,
   type OutcomeType,
@@ -33,7 +39,10 @@ import {
 import {
   captureActiveFieldContext,
   captureActiveTabContext,
+  fillFormFieldById,
   fillActiveField,
+  listOpenTabUrls,
+  scanActiveTabFormFields,
   type PageContext
 } from "../../src/lib/page-capture";
 import {
@@ -138,15 +147,18 @@ type AiProviderPresetKey = keyof typeof AI_PROVIDER_PRESETS;
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
   const [config, setConfig] = useState<ConfigStatusResponse | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceState>({ focusedJobId: "", jobs: [] });
+  const [workspace, setWorkspace] = useState<WorkspaceState>({ focusedJobId: "", showHidden: false, jobs: [] });
   const [pageContext, setPageContext] = useState<PageContext | null>(null);
   const [message, setMessage] = useState("Ready.");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiProvider, setApiProvider] = useState<AiProviderPresetKey>("openai");
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(AI_PROVIDER_PRESETS.openai.baseUrl);
   const [apiModel, setApiModel] = useState<string>(AI_PROVIDER_PRESETS.openai.model);
+  const [apiDisplayName, setApiDisplayName] = useState<string>(AI_PROVIDER_PRESETS.openai.label);
+  const [apiReasoningEffort, setApiReasoningEffort] = useState<string>("medium");
   const [apiKey, setApiKey] = useState("");
   const [resumeOutputDir, setResumeOutputDir] = useState("");
+  const [aiProfiles, setAiProfiles] = useState<AiProviderProfileRecord[]>([]);
   const [applicationsByJobId, setApplicationsByJobId] = useState<Record<string, ApplicationRecord>>({});
   const [outcomesByApplicationId, setOutcomesByApplicationId] = useState<Record<string, OutcomeSignalResponse>>({});
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
@@ -188,7 +200,7 @@ export function App() {
   }, [serviceState, workspace.jobs.length]);
 
   const focusedJob = useMemo(
-    () => workspace.jobs.find((job) => job.id === workspace.focusedJobId) ?? workspace.jobs[0] ?? null,
+    () => visibleJobs(workspace).find((job) => job.id === workspace.focusedJobId) ?? visibleJobs(workspace)[0] ?? null,
     [workspace]
   );
 
@@ -198,6 +210,8 @@ export function App() {
       setServiceState("online");
       const status = await checkConfigStatus();
       setConfig(status);
+      const profiles = await listAiProviderProfiles();
+      setAiProfiles(profiles.profiles);
     } catch (error) {
       setServiceState("offline");
       setMessage(error instanceof Error ? error.message : "NxJob local service is offline.");
@@ -343,10 +357,18 @@ export function App() {
   async function runFormAnswer(job: JobWorkspaceRecord) {
     markWorkflow(job.id, "formAnswer", "running");
     try {
-      const fieldContext = await captureActiveFieldContext();
-      const result = await draftFormAnswer(job.jobLead, fieldContext);
+      const formContext = await scanActiveTabFormFields();
+      const fields = formContext.fields.filter((field) => !["ssn", "password", "eeoc"].includes(field.sensitiveKind ?? ""));
+      if (fields.length === 0) {
+        const fieldContext = await captureActiveFieldContext();
+        const result = await draftFormAnswer(job.jobLead, fieldContext);
+        setWorkflowResult(job.id, "formAnswer", result);
+        setMessage("Answer draft generated for the focused field. Review before filling.");
+        return;
+      }
+      const result = await draftFormAnswers(job.jobLead, fields);
       setWorkflowResult(job.id, "formAnswer", result);
-      setMessage("Answer draft generated. Review before filling the field.");
+      setMessage(`Generated ${result.drafts.length} form answer drafts. Review before filling.`);
     } catch (error) {
       setWorkflowError(job.id, "formAnswer", error);
     }
@@ -383,11 +405,15 @@ export function App() {
         provider: apiProvider,
         baseUrl: apiBaseUrl,
         model: apiModel,
-        apiKey
+        apiKey,
+        displayName: apiDisplayName,
+        reasoningEffort: apiReasoningEffort
       });
       setConfig(status);
+      const profiles = await listAiProviderProfiles();
+      setAiProfiles(profiles.profiles);
       setApiKey("");
-      setMessage("AI provider saved to local private config.");
+      setMessage("AI provider profile saved to local private config.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save AI provider.");
     }
@@ -398,6 +424,16 @@ export function App() {
     setApiProvider(provider);
     setApiBaseUrl(preset.baseUrl);
     setApiModel(preset.model);
+    setApiDisplayName(preset.label);
+  }
+
+  async function confirmFillField(fieldId: string, answer: string) {
+    try {
+      await fillFormFieldById(fieldId, answer);
+      setMessage("Filled selected field. Review the page before submitting.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to fill selected field.");
+    }
   }
 
   async function clearApiKey() {
@@ -434,6 +470,28 @@ export function App() {
       setMessage(`Resume feedback saved: ${FEEDBACK_LABELS[rating]}.${suffix}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save resume feedback.");
+    }
+  }
+
+  async function activateProfile(profileId: string) {
+    try {
+      await activateAiProviderProfile(profileId);
+      await refreshServiceAndConfig();
+      setMessage("AI provider profile activated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to activate AI profile.");
+    }
+  }
+
+  async function removeProfile(profileId: string) {
+    try {
+      const status = await deleteAiProviderProfile(profileId);
+      setConfig(status);
+      const profiles = await listAiProviderProfiles();
+      setAiProfiles(profiles.profiles);
+      setMessage("AI provider profile removed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to remove AI profile.");
     }
   }
 
@@ -498,6 +556,52 @@ export function App() {
     }
   }
 
+  function hideJob(jobId: string) {
+    setWorkspace((current) => {
+      const updated = updateWorkspaceJob(current, jobId, (job) => ({
+        ...job,
+        visibility: "hidden",
+        hiddenAt: new Date().toISOString()
+      }));
+      return updated.focusedJobId === jobId ? { ...updated, focusedJobId: visibleJobs(updated)[0]?.id ?? "" } : updated;
+    });
+  }
+
+  function restoreJob(jobId: string) {
+    setWorkspace((current) =>
+      updateWorkspaceJob(current, jobId, (job) => ({
+        ...job,
+        visibility: "active",
+        hiddenAt: ""
+      }))
+    );
+  }
+
+  async function refreshOpenTabs() {
+    try {
+      const urls = await listOpenTabUrls();
+      const normalizedUrls = new Set(urls.map(normalizeUrlForPresence));
+      setWorkspace((current) => ({
+        ...current,
+        jobs: current.jobs.map((job) => ({
+          ...job,
+          tabPresence: normalizedUrls.has(normalizeUrlForPresence(job.pageUrl || job.jobLead.source_url)) ? "open" : "closed",
+          visibility:
+            job.visibility === "hidden" || normalizedUrls.has(normalizeUrlForPresence(job.pageUrl || job.jobLead.source_url))
+              ? job.visibility
+              : "hidden",
+          hiddenAt:
+            job.visibility === "hidden" || normalizedUrls.has(normalizeUrlForPresence(job.pageUrl || job.jobLead.source_url))
+              ? job.hiddenAt
+              : new Date().toISOString()
+        }))
+      }));
+      setMessage("Job cards refreshed. Closed-tab jobs were hidden from the active list.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to refresh open browser tabs.");
+    }
+  }
+
   function markWorkflow(jobId: string, key: WorkflowKey, status: "running") {
     setWorkspace((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
@@ -522,11 +626,11 @@ export function App() {
     result: SponsorshipAnalyzeResponse
   ): void;
   function setWorkflowResult(jobId: string, key: "resume", result: ResumeTailorResponse): void;
-  function setWorkflowResult(jobId: string, key: "formAnswer", result: FormAnswerDraftResponse): void;
+  function setWorkflowResult(jobId: string, key: "formAnswer", result: FormAnswerDraftResponse | FormAnswerDraftsResponse): void;
   function setWorkflowResult(
     jobId: string,
     key: WorkflowKey,
-    result: SponsorshipAnalyzeResponse | ResumeTailorResponse | FormAnswerDraftResponse
+    result: SponsorshipAnalyzeResponse | ResumeTailorResponse | FormAnswerDraftResponse | FormAnswerDraftsResponse
   ) {
     setWorkspace((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
@@ -596,6 +700,12 @@ export function App() {
             Output Folder {config?.resume_output_dir_configured ? "ready" : "missing"}
           </span>
         </div>
+        {config?.ai_provider_configured ? (
+          <p className="active-ai">
+            AI: {config.ai_profile_display_name || config.ai_provider_name} · {config.ai_model || "model unset"} · thinking{" "}
+            {config.ai_reasoning_effort || "medium"}
+          </p>
+        ) : null}
 
         {settingsOpen ? (
           <div className="settings-grid">
@@ -604,6 +714,10 @@ export function App() {
               <input type="file" accept="application/json,.json" onChange={handleMasterResumeFile} />
             </label>
 
+            <label>
+              <span>Profile Name</span>
+              <input value={apiDisplayName} onChange={(event) => setApiDisplayName(event.target.value)} />
+            </label>
             <label>
               <span>AI Service</span>
               <select value={apiProvider} onChange={(event) => selectAiProvider(event.target.value as AiProviderPresetKey)}>
@@ -623,6 +737,16 @@ export function App() {
               <span>Model</span>
               <input value={apiModel} onChange={(event) => setApiModel(event.target.value)} />
               <small>Preset default is filled automatically. Advanced users may override it.</small>
+            </label>
+            <label>
+              <span>Thinking Strength</span>
+              <select value={apiReasoningEffort} onChange={(event) => setApiReasoningEffort(event.target.value)}>
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+              <small>Saved and shown in NxJob. Providers that do not support it may ignore this setting.</small>
             </label>
             <label>
               <span>API Key</span>
@@ -652,6 +776,26 @@ export function App() {
                 Clear AI Key
               </button>
             </div>
+            {aiProfiles.length > 0 ? (
+              <div className="profile-list">
+                <strong>Saved AI Profiles</strong>
+                {aiProfiles.map((profile) => (
+                  <div key={profile.id} className="profile-row">
+                    <span>
+                      {profile.display_name} · {profile.model || "model unset"} · {profile.reasoning_effort}
+                    </span>
+                    <button type="button" className="secondary-button" disabled={profile.is_active} onClick={() => activateProfile(profile.id)}>
+                      {profile.is_active ? "Active" : "Use"}
+                    </button>
+                    {profile.source === "private_config" ? (
+                      <button type="button" className="secondary-button" onClick={() => removeProfile(profile.id)}>
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <small>
               NxJob uses local private config first. Environment variables are only a development fallback. Keys and resume contents are not written to logs.
             </small>
@@ -671,8 +815,20 @@ export function App() {
 
       <section className="workspace" aria-label="Job workspace">
         <nav className="job-list" aria-label="Captured jobs">
+          <div className="job-list-tools">
+            <button type="button" className="secondary-button" onClick={refreshOpenTabs}>
+              Refresh Tabs
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setWorkspace((current) => ({ ...current, showHidden: !current.showHidden }))}
+            >
+              {workspace.showHidden ? "Show Active" : "Show Hidden"}
+            </button>
+          </div>
           {workspace.jobs.length === 0 ? <p className="empty">No captured jobs yet.</p> : null}
-          {workspace.jobs.map((job) => (
+          {visibleJobs(workspace).map((job) => (
             <button
               key={job.id}
               type="button"
@@ -681,6 +837,7 @@ export function App() {
             >
               <span>{job.jobLead.page_title || job.jobLead.job_title || "Untitled job"}</span>
               <small>{job.jobLead.source_site} · {job.selectedTextLength} selected chars</small>
+              <small>{job.visibility === "hidden" ? "hidden" : job.tabPresence === "closed" ? "tab closed" : "active"}</small>
               <small>{jobSummary(job)}</small>
             </button>
           ))}
@@ -697,7 +854,10 @@ export function App() {
               onTailorRefresh={() => runTailor(focusedJob, true)}
               onDraftAnswer={() => runFormAnswer(focusedJob)}
               onFillAnswer={confirmFill}
+              onFillField={confirmFillField}
               onFeedback={(rating) => saveFeedback(focusedJob, rating)}
+              onHide={() => hideJob(focusedJob.id)}
+              onRestore={() => restoreJob(focusedJob.id)}
               application={applicationsByJobId[focusedJob.id] ?? null}
               outcome={applicationsByJobId[focusedJob.id] ? outcomesByApplicationId[applicationsByJobId[focusedJob.id].id] ?? null : null}
               trackingBusy={trackingStatus === "running"}
@@ -725,7 +885,10 @@ function JobDetail(props: {
   onTailorRefresh: () => void;
   onDraftAnswer: () => void;
   onFillAnswer: (answer: string) => void;
+  onFillField: (fieldId: string, answer: string) => void;
   onFeedback: (rating: ResumeFeedbackRating) => void;
+  onHide: () => void;
+  onRestore: () => void;
   application: ApplicationRecord | null;
   outcome: OutcomeSignalResponse | null;
   trackingBusy: boolean;
@@ -747,6 +910,17 @@ function JobDetail(props: {
         </div>
         <span className="id-pill">{job.jobLead.id}</span>
       </header>
+      <div className="action-row">
+        {job.visibility === "hidden" ? (
+          <button type="button" className="secondary-button" onClick={props.onRestore}>
+            Restore Card
+          </button>
+        ) : (
+          <button type="button" className="secondary-button" onClick={props.onHide}>
+            Hide Card
+          </button>
+        )}
+      </div>
 
       <div className="action-row">
         <button type="button" disabled={job.workflows.sponsorship.status === "running"} onClick={props.onAnalyze}>
@@ -794,18 +968,57 @@ function JobDetail(props: {
       </div>
 
       {formAnswer ? (
-        <section className="result-block">
-          <strong>Answer Draft</strong>
-          <p>{formAnswer.draft.answer}</p>
-          <small>{formAnswer.ai_used ? "AI draft" : "Fixed profile answer"} · Requires review</small>
-          <button type="button" className="secondary-button" onClick={() => props.onFillAnswer(formAnswer.draft.answer)}>
-            Fill Current Field
-          </button>
-        </section>
+        <FormAnswerResult result={formAnswer} onFillAnswer={props.onFillAnswer} onFillField={props.onFillField} />
       ) : (
         <WorkflowMessage run={job.workflows.formAnswer} />
       )}
     </article>
+  );
+}
+
+function FormAnswerResult(props: {
+  result: FormAnswerDraftResponse | FormAnswerDraftsResponse;
+  onFillAnswer: (answer: string) => void;
+  onFillField: (fieldId: string, answer: string) => void;
+}) {
+  if ("drafts" in props.result) {
+    return (
+      <section className="result-block">
+        <strong>Answer Drafts</strong>
+        <small>{props.result.ai_used ? "AI + fixed profile drafts" : "Fixed profile drafts"} · Requires review</small>
+        {props.result.drafts.map((draft) => {
+          const fieldId = draft.field_id;
+          return (
+            <article key={draft.id} className="draft-card">
+              <span>{draft.field_label || "Detected field"}</span>
+              <p>{draft.answer}</p>
+              {draft.risk_flags.length > 0 ? <small>{draft.risk_flags.join(" ")}</small> : null}
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!fieldId}
+                onClick={() => props.onFillField(fieldId, draft.answer)}
+              >
+                Fill This Field
+              </button>
+            </article>
+          );
+        })}
+        {props.result.warnings.length > 0 ? <small>{props.result.warnings.join(" ")}</small> : null}
+      </section>
+    );
+  }
+
+  const singleResult = props.result as FormAnswerDraftResponse;
+  return (
+    <section className="result-block">
+      <strong>Answer Draft</strong>
+      <p>{singleResult.draft.answer}</p>
+      <small>{singleResult.ai_used ? "AI draft" : "Fixed profile answer"} · Requires review</small>
+      <button type="button" className="secondary-button" onClick={() => props.onFillAnswer(singleResult.draft.answer)}>
+        Fill Current Field
+      </button>
+    </section>
   );
 }
 
@@ -1065,6 +1278,20 @@ function jobSummary(job: JobWorkspaceRecord): string {
   const sponsorshipText = sponsorship ? sponsorshipLabel(sponsorship.sponsorship.status) : "No sponsorship result";
   const resumeText = resume ? "Resume ready" : "No resume";
   return `${sponsorshipText} · ${resumeText}`;
+}
+
+function visibleJobs(workspace: WorkspaceState): JobWorkspaceRecord[] {
+  return workspace.jobs.filter((job) => (workspace.showHidden ? job.visibility === "hidden" : job.visibility !== "hidden"));
+}
+
+function normalizeUrlForPresence(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function sponsorshipLabel(status: SponsorshipStatus): string {
