@@ -72,6 +72,14 @@ Do not create separate milestones for a single UI copy change, test fix, schema 
 
 The detailed M0-M8 list below records the historical build plan and can still be used as implementation context. It should not force future work into the same level of fragmentation.
 
+## Post-MVP Backlog
+
+These improvements are important but are not required for the 0.5.0 public release:
+
+- Expand Fill Form Answer into a guided one-click form-fill workflow for text fields, single-select, multi-select, radio buttons, and checkboxes while keeping final submission manual.
+- Improve Tailor Resume line utilization and bullet density, with special attention to free Gemini API behavior while keeping other OpenAI-compatible providers supported.
+- Reduce manual JD selection by detecting the primary job-description region on LinkedIn, Indeed, and common ATS pages.
+
 ## Historical MVP Milestone Exit Criteria
 
 M0 exits when:

@@ -2,6 +2,7 @@
   "name": "nxjob",
   "version": "0.5.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "NxJob MVP monorepo",
   "workspaces": [
     "apps/extension",

@@ -109,14 +109,14 @@ def test_sponsorship_ambiguous_text_reports_missing_ai_config(tmp_path, monkeypa
 def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "nxjob.sqlite3"
     monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
-    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "test-api-key-secret")
     monkeypatch.setenv("NXJOB_AI_PROVIDER", "openai_compatible")
     monkeypatch.setenv("NXJOB_AI_BASE_URL", "https://api.example.test/v1")
     monkeypatch.setenv("NXJOB_AI_MODEL", "test-model")
 
     def fake_urlopen(request, timeout):
         request_body = json.loads(request.data.decode("utf-8"))
-        assert request.get_header("Authorization") == "Bearer sk-test-secret"
+        assert request.get_header("Authorization") == "Bearer test-api-key-secret"
         assert request_body["model"] == "test-model"
         return FakeAiResponse(
             {
@@ -163,7 +163,7 @@ def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkey
         ).fetchone()
 
     assert prompt_log == ("JD sponsorship indicators only; full JD not logged", "test-model", "openai", "")
-    assert "sk-test-secret" not in response.text
+    assert "test-api-key-secret" not in response.text
 
 
 def test_sponsorship_can_disable_ai_fallback(tmp_path, monkeypatch) -> None:

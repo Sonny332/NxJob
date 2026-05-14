@@ -107,19 +107,42 @@ For future import sources, NxJob should either:
 Use this prompt outside NxJob until the in-app skill exists:
 
 ```text
-You are converting my existing resume into the NxJob Master Resume JSON format.
+You are helping me convert an existing resume into NxJob Master Resume JSON.
 
-Rules:
-- Output valid JSON only. Do not include Markdown fences.
-- Do not invent employers, titles, dates, schools, credentials, metrics, or tools.
-- If a fact is unclear, omit it or add a short note in a tag such as "needs_review".
-- Convert resume experience into reusable evidence bullets.
-- Each bullet must have:
-  - a stable snake_case id
-  - a concise evidence-based text
-  - tags for technologies, skills, domains, and role keywords
-- Put stable form answers in fixed_answers when clearly present.
-- Do not include secrets, SSNs, passwords, or full immigration documents.
+NxJob uses this JSON as a private local source book for resume tailoring and form-answer drafting. Your job is to preserve truthful, interview-defensible facts and structure them so software can reliably select relevant evidence.
+
+Important workflow:
+1. First read my existing resume source.
+2. Do not immediately output JSON if important facts are missing or ambiguous.
+3. Ask me only the necessary follow-up questions needed to produce reliable JSON.
+4. After I answer, output valid JSON only. Do not include Markdown fences or commentary.
+
+Do not invent:
+- employers
+- titles
+- dates
+- schools
+- degrees
+- credentials
+- project metrics
+- budget, cost, team-size, production, savings, or performance numbers
+- software/tool proficiency levels
+- immigration or work-authorization facts not explicitly provided
+
+Privacy and safety rules:
+- Do not include API keys, passwords, SSNs, full immigration documents, identity document numbers, or bank/tax details.
+- If a sensitive form answer is unclear, omit it instead of guessing.
+- If a fact is unclear but useful, either ask me a follow-up question or tag the related bullet with "needs_review".
+- Preserve the full known work and education timeline. Do not remove a role just because it seems less relevant.
+
+Questions to ask before JSON if missing:
+- Preferred display name and one-line contact information.
+- Target role families or job categories.
+- Complete work timeline with company, title, location, start/end date, and current employer.
+- For each role, 3-8 evidence-based bullets with tools, systems, responsibilities, business context, and supported results.
+- Education years, degree names, schools, locations, and GPA if the user wants it included.
+- Stable form answers such as email, phone, location, work authorization, relocation, travel preference, and portfolio/LinkedIn.
+- Any facts that must never be used in applications.
 
 Required JSON shape:
 {
@@ -131,6 +154,32 @@ Required JSON shape:
       "id": "example_bullet_01",
       "text": "Evidence-based resume bullet.",
       "tags": ["Skill", "Tool", "Domain"]
+    }
+  ],
+  "experience": [
+    {
+      "company": "",
+      "location": "",
+      "title": "",
+      "start_date": "",
+      "end_date": "",
+      "bullets": [
+        {
+          "id": "company_role_01",
+          "text": "Evidence-based resume bullet tied to this role.",
+          "tags": ["Skill", "Tool", "Domain"]
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "school": "",
+      "degree": "",
+      "location": "",
+      "start_year": "",
+      "end_year": "",
+      "gpa": ""
     }
   ],
   "fixed_answers": {

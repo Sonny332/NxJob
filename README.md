@@ -32,6 +32,12 @@ NxJob does not automatically submit applications, bypass verification, bulk scra
 
 Tailor Resume uses a private Master Resume, a configured resume output folder, and the local service to generate DOCX and Markdown resume artifacts. Generated resumes and private configuration stay local.
 
+## License and Privacy
+
+NxJob source code is licensed under the Apache License 2.0.
+
+User data is not part of the open-source repository. Do not commit real master resumes, generated resumes, AI provider API keys, local SQLite databases, PromptLogs, recruiter replies, or real application records. Keep those files in local private storage only.
+
 ## Developer Setup
 
 Developer setup is secondary to packaged releases.

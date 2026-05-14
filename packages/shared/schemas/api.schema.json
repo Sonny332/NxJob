@@ -199,7 +199,10 @@
             "placeholder": { "type": "string" },
             "surrounding_text": { "type": "string" },
             "current_value": { "type": "string" },
-            "input_type": { "type": "string" }
+            "input_type": { "type": "string" },
+            "required": { "type": "boolean" },
+            "options": { "type": "array", "items": { "type": "string" } },
+            "sensitive_kind": { "type": "string" }
           },
           "additionalProperties": false
         },
@@ -276,7 +279,10 @@
               "placeholder": { "type": "string" },
               "surrounding_text": { "type": "string" },
               "current_value": { "type": "string" },
-              "input_type": { "type": "string" }
+              "input_type": { "type": "string" },
+              "required": { "type": "boolean" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "sensitive_kind": { "type": "string" }
             },
             "additionalProperties": false
           }

@@ -46,7 +46,7 @@ def test_openai_compatible_client_reads_json_object(monkeypatch) -> None:
             provider="openai_compatible",
             base_url="https://api.example.test/v1",
             model="test-model",
-            api_key="sk-secret",
+            api_key="test-api-key-secret",
         ),
         [{"role": "user", "content": "Return JSON."}],
     )
@@ -54,7 +54,7 @@ def test_openai_compatible_client_reads_json_object(monkeypatch) -> None:
     assert result.data == {"ok": True}
     assert result.token_usage["total_tokens"] == 42
     assert captured["url"] == "https://api.example.test/v1/chat/completions"
-    assert captured["authorization"] == "Bearer sk-secret"
+    assert captured["authorization"] == "Bearer test-api-key-secret"
 
 
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ def test_openai_compatible_client_uses_provider_default_models(
             provider=provider,
             base_url="",
             model="",
-            api_key="sk-secret",
+            api_key="test-api-key-secret",
         ),
         [{"role": "user", "content": "Return JSON."}],
     )
@@ -159,7 +159,7 @@ def test_openai_compatible_client_classifies_http_errors(
                 provider="openai_compatible",
                 base_url="https://api.example.test/v1",
                 model="test-model",
-                api_key="sk-secret",
+                api_key="test-api-key-secret",
             ),
             [{"role": "user", "content": "Return JSON."}],
         )
@@ -167,7 +167,7 @@ def test_openai_compatible_client_classifies_http_errors(
     assert exc.value.category == category
     assert exc.value.status_code == public_status
     assert exc.value.upstream_status == status_code
-    assert "sk-secret" not in exc.value.user_message
+    assert "test-api-key-secret" not in exc.value.user_message
 
 
 def test_openai_compatible_client_explains_retryable_provider_unavailable(monkeypatch) -> None:
@@ -182,7 +182,7 @@ def test_openai_compatible_client_explains_retryable_provider_unavailable(monkey
                 provider="gemini",
                 base_url="",
                 model="gemini-2.5-flash-lite",
-                api_key="sk-secret",
+                api_key="test-api-key-secret",
             ),
             [{"role": "user", "content": "Return JSON."}],
         )

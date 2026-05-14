@@ -676,7 +676,10 @@ export async function draftFormAnswer(
         placeholder: fieldContext.placeholder,
         surrounding_text: fieldContext.surroundingText,
         current_value: fieldContext.currentValue,
-        input_type: fieldContext.inputType
+        input_type: fieldContext.inputType,
+        required: fieldContext.required ?? false,
+        options: fieldContext.options ?? [],
+        sensitive_kind: fieldContext.sensitiveKind ?? ""
       },
       jd_text: jobLead.jd_text,
       profile_vault_id: "master_default"
@@ -708,7 +711,10 @@ export async function draftFormAnswers(
         placeholder: field.placeholder,
         surrounding_text: field.surroundingText,
         current_value: field.currentValue,
-        input_type: field.inputType
+        input_type: field.inputType,
+        required: field.required ?? false,
+        options: field.options ?? [],
+        sensitive_kind: field.sensitiveKind ?? ""
       })),
       jd_text: jobLead.jd_text,
       profile_vault_id: "master_default"

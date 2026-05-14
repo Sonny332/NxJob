@@ -22,6 +22,7 @@ from nxjob.schemas.core import (
     PromptLogCreate,
     WorkflowTraceRecord,
 )
+from nxjob.settings.private_config import read_ai_provider_config
 from nxjob.workflows.form_answer_drafter import WORKFLOW_NAME, draft_form_answer
 
 router = APIRouter(prefix="/api/v1/forms", tags=["forms"])
@@ -43,11 +44,13 @@ def draft_form_answer_endpoint(payload: FormAnswerDraftCreate) -> FormAnswerDraf
             raise HTTPException(status_code=404, detail="JobLead not found") from exc
 
         effective_job = job_lead.model_copy(update={"jd_text": payload.jd_text or job_lead.jd_text})
+        ai_config = read_ai_provider_config()
         draft = draft_form_answer(
             effective_job,
             payload.field_context,
             master_resume,
             payload.master_resume_bullets,
+            ai_config,
         )
 
         create_workflow_trace(
@@ -67,8 +70,8 @@ def draft_form_answer_endpoint(payload: FormAnswerDraftCreate) -> FormAnswerDraf
                 trace_id=trace_id,
                 workflow_name=WORKFLOW_NAME,
                 input_summary="fixed answer lookup" if not draft.ai_used else "field context + JD keywords + bullets",
-                model="deterministic-form-answer-v1",
-                provider="local_fixed" if not draft.ai_used else "local_stub",
+                model="deterministic-form-answer-v1" if not draft.ai_used else (ai_config.model if ai_config else "local_fallback"),
+                provider="local_fixed" if not draft.ai_used else (ai_config.provider if ai_config else "local_stub"),
                 token_usage=draft.token_usage,
                 output_summary="requires_user_review",
             ),
@@ -123,6 +126,7 @@ def draft_form_answers_endpoint(payload: FormAnswerDraftsCreate) -> FormAnswerDr
                 status="completed",
             ),
         )
+        ai_config = read_ai_provider_config()
         records: list[FormAnswerDraftRecord] = []
         ai_used = False
         for field_context in payload.fields:
@@ -131,6 +135,7 @@ def draft_form_answers_endpoint(payload: FormAnswerDraftsCreate) -> FormAnswerDr
                 field_context,
                 master_resume,
                 payload.master_resume_bullets,
+                ai_config,
             )
             ai_used = ai_used or draft.ai_used
             prompt_log = create_prompt_log(
@@ -143,8 +148,8 @@ def draft_form_answers_endpoint(payload: FormAnswerDraftsCreate) -> FormAnswerDr
                         if not draft.ai_used
                         else "batch field context + JD keywords + bullets"
                     ),
-                    model="deterministic-form-answer-v1",
-                    provider="local_fixed" if not draft.ai_used else "local_stub",
+                    model="deterministic-form-answer-v1" if not draft.ai_used else (ai_config.model if ai_config else "local_fallback"),
+                    provider="local_fixed" if not draft.ai_used else (ai_config.provider if ai_config else "local_stub"),
                     token_usage=draft.token_usage,
                     output_summary="requires_user_review",
                 ),

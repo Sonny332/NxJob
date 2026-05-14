@@ -316,7 +316,7 @@ Future MCP tool name: `draft_form_answer_from_resume_bullets`.
 
 Purpose: draft an answer for the current form field using profile facts and master resume bullets.
 
-M6 implementation note: fixed personal facts are read from the private master resume `fixed_answers` map and do not consume AI. Open-ended questions use the current JD, field context, and the smallest matching set of master resume bullets. The plugin must show the draft first; the user must explicitly confirm before NxJob fills the focused field. NxJob never clicks submit.
+MVP implementation note: fixed personal facts are read from the private master resume `fixed_answers` map and do not consume AI. Open-ended and complex questions may use the configured AI provider with only field context, JD keywords, and the smallest matching set of master resume bullets. The plugin must show the draft first; the user must explicitly confirm before NxJob fills the focused field. NxJob never clicks submit.
 
 Request:
 
@@ -329,7 +329,11 @@ Request:
     "label": "string",
     "placeholder": "string",
     "surrounding_text": "string",
-    "current_value": "string"
+    "current_value": "string",
+    "input_type": "text | textarea | select | radio | checkbox",
+    "required": false,
+    "options": ["string"],
+    "sensitive_kind": "string"
   },
   "jd_text": "string",
   "master_resume_bullets": [
@@ -348,7 +352,8 @@ Rules:
 - `job_lead_id` and `field_context` are required.
 - `requires_user_review` is always `true`.
 - Fixed answers can return `ai_used: false`.
-- Open-ended answers return referenced bullet ids and risk flags.
+- Open-ended AI answers return referenced bullet ids and risk flags.
+- Choice fields with `options` should return an exact available option or a warning for manual selection.
 - If `master_resume_bullets` is omitted, the local service reads `NXJOB_MASTER_RESUME_PATH`.
 - Filling a field is a plugin UI confirmation action, not a backend submit action.
 
@@ -421,7 +426,8 @@ Purpose: draft answers for multiple detected form fields in one user-reviewed ba
 Rules:
 
 - Fixed profile answers do not consume AI.
-- Open-ended questions use JD keywords and matching master resume bullets.
+- Open-ended and complex questions use JD keywords, matching master resume bullets, and the configured AI provider when available.
+- Choice fields must match available options when options are supplied; otherwise the plugin should leave the final choice to the user.
 - Sensitive fields such as SSN, password, EEOC, disability, race, gender, and veteran fields should be skipped or require explicit user review in the plugin.
 - Response drafts are never submitted automatically.
 

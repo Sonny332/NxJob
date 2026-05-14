@@ -118,11 +118,11 @@ def test_tailor_resume_accepts_en_dash_education_years() -> None:
 
 def test_tailor_resume_contact_line_keeps_core_contact_on_one_line() -> None:
     contact = _fit_contact_line(
-        "Boston / Greater Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | "
-        "LinkedIn: xu-shen-sonny332 | H-1B transfer candidate, open to U.S. relocation"
+        "Boston / Greater Boston, MA | 555-010-0000 | candidate@example.com | "
+        "LinkedIn: candidate-profile | H-1B transfer candidate, open to U.S. relocation"
     )
 
-    assert contact == "Boston / Greater Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332"
+    assert contact == "Boston / Greater Boston, MA | 555-010-0000 | candidate@example.com | LinkedIn: candidate-profile"
     assert "H-1B" not in contact
 
 
@@ -220,7 +220,7 @@ def test_tailor_resume_adds_baseline_bullets_when_ai_output_underfills_page() ->
 def test_ai_payload_empty_content_is_rejected() -> None:
     baseline_content = TailoredResumeContent(
         candidate_name="Xu (Sonny) Shen",
-        contact_line="Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332",
+        contact_line="Boston, MA | 555-010-0000 | candidate@example.com | LinkedIn: candidate-profile",
         headline="Application Engineer alignment",
         summary=["Engineer focused on energy systems, technical analysis, and customer-facing execution."],
         skills=["Application Engineering", "Technical Analysis", "Project Coordination"],
@@ -258,7 +258,7 @@ def test_ai_payload_empty_content_is_rejected() -> None:
 def test_ai_payload_partial_content_is_repaired_from_local_baseline() -> None:
     baseline_content = TailoredResumeContent(
         candidate_name="Xu (Sonny) Shen",
-        contact_line="Boston, MA | 857-891-9711 | sonnyshen332@gmail.com | LinkedIn: xu-shen-sonny332",
+        contact_line="Boston, MA | 555-010-0000 | candidate@example.com | LinkedIn: candidate-profile",
         headline="Application Engineer alignment",
         summary=["Engineer focused on energy systems, technical analysis, and customer-facing execution."],
         skills=["Application Engineering", "Technical Analysis", "Project Coordination"],
@@ -318,7 +318,7 @@ def test_ai_empty_content_does_not_generate_candidate_only_docx(tmp_path, monkey
             {
                 "id": "master_default",
                 "candidate_name": "Xu (Sonny) Shen",
-                "contact_line": "Boston, MA | 857-891-9711 | sonnyshen332@gmail.com",
+                "contact_line": "Boston, MA | 555-010-0000 | candidate@example.com",
                 "bullets": [
                     {
                         "id": "bullet_energy",
@@ -358,7 +358,7 @@ def test_ai_empty_content_does_not_generate_candidate_only_docx(tmp_path, monkey
     monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
     monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(output_dir))
     monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
-    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "private-test-api-key")
     monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
 
     def fake_urlopen(request, timeout):
@@ -409,12 +409,12 @@ def test_tailor_resume_uses_configured_ai_provider_without_logging_private_input
     db_path = tmp_path / "nxjob.sqlite3"
     monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
     monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
-    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "private-test-api-key")
     monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
 
     def fake_ai_tailor(*args, **kwargs):
         ai_config = args[3]
-        assert ai_config.api_key == "sk-private-test-key"
+        assert ai_config.api_key == "private-test-api-key"
         content = TailoredResumeContent(
             candidate_name="Candidate",
             contact_line="candidate@example.com",
@@ -475,7 +475,7 @@ def test_tailor_resume_uses_configured_ai_provider_without_logging_private_input
     assert prompt_row[0] == "openai"
     assert prompt_row[1] == "test-tailor-model"
     assert json.loads(prompt_row[4])["total_tokens"] == 180
-    assert "sk-private-test-key" not in serialized_prompt_row
+    assert "private-test-api-key" not in serialized_prompt_row
     assert "Private JD text" not in serialized_prompt_row
     assert "Private master resume bullet" not in serialized_prompt_row
 
@@ -484,7 +484,7 @@ def test_tailor_resume_ai_provider_failure_is_sanitized(tmp_path, monkeypatch) -
     db_path = tmp_path / "nxjob.sqlite3"
     monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))
     monkeypatch.setenv("NXJOB_GENERATED_RESUME_DIR", str(tmp_path / "generated"))
-    monkeypatch.setenv("NXJOB_AI_API_KEY", "sk-private-test-key")
+    monkeypatch.setenv("NXJOB_AI_API_KEY", "private-test-api-key")
     monkeypatch.setenv("NXJOB_AI_MODEL", "test-tailor-model")
 
     def fake_ai_tailor(*args, **kwargs):
@@ -512,7 +512,7 @@ def test_tailor_resume_ai_provider_failure_is_sanitized(tmp_path, monkeypatch) -
     assert response.json()["detail"]["message"] == "AI provider authentication failed."
     assert response.json()["detail"]["error"]["code"] == "authentication_failed"
     assert response.json()["detail"]["error"]["config_source"] == "environment"
-    assert "sk-private-test-key" not in response.text
+    assert "private-test-api-key" not in response.text
 
     with sqlite3.connect(db_path) as connection:
         prompt_row = connection.execute(
@@ -523,7 +523,7 @@ def test_tailor_resume_ai_provider_failure_is_sanitized(tmp_path, monkeypatch) -
     serialized_prompt_row = " ".join(str(value) for value in prompt_row)
     assert prompt_row[2] == "authentication_failed"
     assert trace_row[0] == "failed"
-    assert "sk-private-test-key" not in serialized_prompt_row
+    assert "private-test-api-key" not in serialized_prompt_row
     assert "Private JD text" not in serialized_prompt_row
 
 
@@ -595,7 +595,7 @@ def test_tailor_resume_includes_education_years_from_master_resume(tmp_path, mon
             {
                 "id": "master_default",
                 "candidate_name": "Xu (Sonny) Shen",
-                "contact_line": "Boston, MA | sonnyshen332@gmail.com",
+                "contact_line": "Boston, MA | candidate@example.com",
                 "bullets": [
                     {
                         "id": "bullet_python",
@@ -640,7 +640,7 @@ def test_tailor_resume_preserves_structured_experience_timeline(tmp_path, monkey
             {
                 "id": "master_default",
                 "candidate_name": "Xu (Sonny) Shen",
-                "contact_line": "Boston, MA | sonnyshen332@gmail.com",
+                "contact_line": "Boston, MA | candidate@example.com",
                 "experience": [
                     {
                         "company": "BostonRen LLC",

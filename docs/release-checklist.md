@@ -8,6 +8,7 @@ Before every release:
 
 - README is current.
 - LICENSE exists and matches the intended distribution model.
+- If the release will make the repository public, complete the Public Repository Readiness Gate below before changing visibility.
 - Version is updated according to SemVer.
 - Local `releases/<version>` artifacts are generated from the exact release commit.
 - `release-manifest.json` commit matches the Git tag commit.
@@ -29,6 +30,21 @@ Before every release:
 - Desktop/local-service data source and browser-extension data source boundaries are clear.
 
 MVP should present installers and packaged artifacts to non-technical users, not source code or development scripts.
+
+## Public Repository Readiness Gate
+
+Complete this gate before changing a private NxJob repository to public:
+
+- Tracked files have been scanned for real master resumes, generated resumes, API keys, local SQLite databases, PromptLogs, recruiter replies, real application records, and private local paths.
+- Git history has been scanned for high-risk secret and resume indicators. If a real secret or private resume appears in history, stop and rotate the secret or clean history before publishing.
+- GitHub Actions history, logs, artifacts, PRs, issues, and comments have been checked for sensitive paths, tokens, API keys, real resume content, real JD content, real emails, or private job-search data.
+- Release assets have been inspected and do not contain `private/`, `.nxjob/`, local databases, PromptLogs, generated resumes, `.git/`, caches, or user-specific config.
+- README points ordinary users to `NxJob-<version>.zip` and does not present GitHub's automatic source archive as the normal install path.
+- Repository About text, description, topics, and website link are accurate and do not imply unsupported automation such as bulk applying or automatic submission.
+- Default branch, release tag, GitHub Release assets, and `release-manifest.json` all point to the same release commit.
+- Secret scanning and push protection are enabled, or the required manual GitHub Security settings are recorded before publishing.
+- `main` branch protection has been considered. At minimum, direct accidental pushes to `main` should be avoided after the repository is public.
+- GitHub Actions permissions and fork pull-request settings have been reviewed for public-repository exposure.
 
 ## Local Release Folder Rule
 

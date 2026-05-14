@@ -43,6 +43,19 @@ Before publishing, confirm `release-manifest.json` points to the same commit as 
 
 If the release build requires a packaging-script fix, commit the fix first, rebuild the release folder, then tag the new commit.
 
+## Public Repository Gate
+
+Before changing repository visibility to public, treat public exposure as a separate release gate. Public repositories expose code, release assets, pull requests, issues, and GitHub Actions logs to anyone who can visit GitHub.
+
+Required checks:
+
+- Scan tracked files and Git history for private resume data, API keys, local databases, PromptLogs, generated resumes, recruiter replies, and real application records.
+- Inspect GitHub Actions history and artifacts for sensitive paths, tokens, private JD/resume content, and user-specific logs.
+- Confirm the release package excludes private config, local app data, cache folders, and source-control metadata.
+- Enable or explicitly record the status of secret scanning and push protection.
+- Review branch protection and fork pull-request settings before opening the repository.
+- Confirm README and GitHub Release copy direct users to the packaged installer zip rather than the automatic source archive.
+
 ## Local Service Package Contract
 
 The local service zip must include these scripts:

@@ -429,6 +429,9 @@ class FieldContext(BaseModel):
     surrounding_text: str = ""
     current_value: str = ""
     input_type: str = ""
+    required: bool = False
+    options: list[str] = Field(default_factory=list)
+    sensitive_kind: str = ""
 
 
 class FormAnswerDraftCreate(BaseModel):
