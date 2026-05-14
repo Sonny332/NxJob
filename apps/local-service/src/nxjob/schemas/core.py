@@ -292,6 +292,10 @@ class ApplicationResponse(TraceResponse):
     application: ApplicationRecord
 
 
+class ApplicationListResponse(TraceResponse):
+    applications: list[ApplicationRecord] = Field(default_factory=list)
+
+
 class OutcomeSignalCreate(BaseModel):
     application_id: str = ""
     job_lead_id: str
@@ -335,6 +339,10 @@ class SuccessReferenceDetail(BaseModel):
 class OutcomeSignalResponse(TraceResponse):
     outcome: OutcomeSignalRecord
     success_reference: dict[str, Any]
+
+
+class OutcomeSignalListResponse(TraceResponse):
+    outcomes: list[OutcomeSignalRecord] = Field(default_factory=list)
 
 
 class SuccessReferenceListResponse(TraceResponse):

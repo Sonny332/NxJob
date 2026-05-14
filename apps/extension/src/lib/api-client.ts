@@ -184,6 +184,11 @@ export type ApplicationResponse = {
   application: ApplicationRecord;
 };
 
+export type ApplicationListResponse = {
+  trace_id: string;
+  applications: ApplicationRecord[];
+};
+
 export type OutcomeSignalRecord = {
   id: string;
   application_id: string;
@@ -204,6 +209,11 @@ export type OutcomeSignalResponse = {
     created: boolean;
     id: string;
   };
+};
+
+export type OutcomeSignalListResponse = {
+  trace_id: string;
+  outcomes: OutcomeSignalRecord[];
 };
 
 export type SuccessReferenceRecord = {
@@ -328,6 +338,22 @@ export async function createApplication(payload: {
   return response.json() as Promise<ApplicationResponse>;
 }
 
+export async function listApplications(options: { jobLeadId: string; limit?: number }): Promise<ApplicationListResponse> {
+  const params = new URLSearchParams();
+  params.set("job_lead_id", options.jobLeadId);
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const response = await fetch(`${API_BASE_URL}/api/v1/applications?${params.toString()}`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ApplicationListResponse>;
+}
+
 export async function createOutcome(payload: {
   applicationId?: string;
   jobLeadId: string;
@@ -359,6 +385,22 @@ export async function createOutcome(payload: {
   }
 
   return response.json() as Promise<OutcomeSignalResponse>;
+}
+
+export async function listOutcomes(options: { jobLeadId: string; limit?: number }): Promise<OutcomeSignalListResponse> {
+  const params = new URLSearchParams();
+  params.set("job_lead_id", options.jobLeadId);
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const response = await fetch(`${API_BASE_URL}/api/v1/outcomes?${params.toString()}`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<OutcomeSignalListResponse>;
 }
 
 export async function listSuccessReferences(options: { limit?: number } = {}): Promise<SuccessReferenceListResponse> {

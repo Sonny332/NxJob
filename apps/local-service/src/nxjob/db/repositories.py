@@ -255,6 +255,23 @@ def get_application(connection: sqlite3.Connection, record_id: str) -> Applicati
     return row_to_application(row)
 
 
+def list_applications_for_job(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+    limit: int = 20,
+) -> list[ApplicationRecord]:
+    rows = connection.execute(
+        """
+        SELECT * FROM applications
+        WHERE job_lead_id = ?
+        ORDER BY applied_at DESC
+        LIMIT ?
+        """,
+        (job_lead_id, limit),
+    ).fetchall()
+    return [row_to_application(row) for row in rows]
+
+
 def create_workflow_trace(
     connection: sqlite3.Connection,
     record: WorkflowTraceRecord,
@@ -575,6 +592,23 @@ def get_outcome_signal(connection: sqlite3.Connection, record_id: str) -> Outcom
     if row is None:
         raise KeyError(record_id)
     return row_to_outcome_signal(row)
+
+
+def list_outcome_signals_for_job(
+    connection: sqlite3.Connection,
+    job_lead_id: str,
+    limit: int = 20,
+) -> list[OutcomeSignalRecord]:
+    rows = connection.execute(
+        """
+        SELECT * FROM outcome_signals
+        WHERE job_lead_id = ?
+        ORDER BY outcome_at DESC
+        LIMIT ?
+        """,
+        (job_lead_id, limit),
+    ).fetchall()
+    return [row_to_outcome_signal(row) for row in rows]
 
 
 def create_sponsorship_evidence(

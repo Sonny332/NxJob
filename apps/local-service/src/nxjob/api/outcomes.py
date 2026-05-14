@@ -12,12 +12,14 @@ from nxjob.db.repositories import (
     get_latest_resume_version_for_job,
     get_resume_version,
     get_success_reference,
+    list_outcome_signals_for_job,
     list_success_references_for_tracker,
     update_application_status,
     update_job_lead_status,
 )
 from nxjob.schemas.core import (
     OutcomeSignalCreate,
+    OutcomeSignalListResponse,
     OutcomeSignalResponse,
     SuccessReferenceCreate,
     SuccessReferenceDetail,
@@ -98,6 +100,18 @@ def create_outcome_endpoint(payload: OutcomeSignalCreate) -> OutcomeSignalRespon
             "id": success_reference.id if success_reference else "",
         },
     )
+
+
+@router.get("/outcomes", response_model=OutcomeSignalListResponse)
+def list_outcomes_endpoint(job_lead_id: str = "", limit: int = 20) -> OutcomeSignalListResponse:
+    trace_id = new_trace_id()
+    with db_session() as connection:
+        outcomes = (
+            list_outcome_signals_for_job(connection, job_lead_id, max(1, min(limit, 100)))
+            if job_lead_id
+            else []
+        )
+    return OutcomeSignalListResponse(trace_id=trace_id, outcomes=outcomes)
 
 
 @router.get("/success-references", response_model=SuccessReferenceListResponse)

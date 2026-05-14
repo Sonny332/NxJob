@@ -396,6 +396,26 @@ Response:
 }
 ```
 
+### GET /api/v1/applications?job_lead_id={job_lead_id}
+
+Purpose: restore application tracking state for a captured job in the Side Panel.
+
+Response:
+
+```json
+{
+  "trace_id": "string",
+  "applications": [
+    {
+      "id": "string",
+      "job_lead_id": "string",
+      "resume_version_id": "string",
+      "status": "applied"
+    }
+  ]
+}
+```
+
 ### POST /api/v1/resume-versions
 
 Purpose: create a stored resume version record. M5 will replace manual record creation with `POST /api/v1/resumes/tailor`.
@@ -457,6 +477,27 @@ Rules:
 - `rejection`, `no_response`, and `closed` update status but do not create a `SuccessReference`.
 - `SuccessReference.effective_bullets` is copied from the submitted `ResumeVersion.selected_bullets`.
 - `SuccessReference.effective_keywords` is derived from the original JD text.
+
+### GET /api/v1/outcomes?job_lead_id={job_lead_id}
+
+Purpose: restore outcome tracking state for a captured job in the Side Panel.
+
+Response:
+
+```json
+{
+  "trace_id": "string",
+  "outcomes": [
+    {
+      "id": "string",
+      "application_id": "string",
+      "job_lead_id": "string",
+      "outcome_type": "screen",
+      "outcome_at": "string"
+    }
+  ]
+}
+```
 
 ### GET /api/v1/success-references
 

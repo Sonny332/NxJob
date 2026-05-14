@@ -11,6 +11,8 @@ import {
   getResumeArtifactUrl,
   getJobLead,
   getWorkflowResults,
+  listApplications,
+  listOutcomes,
   listSuccessReferences,
   saveAiProvider,
   saveMasterResume,
@@ -154,7 +156,10 @@ export function App() {
     let cancelled = false;
 
     loadWorkspaceState().then((state) => {
-      if (!cancelled) setWorkspace(state);
+      if (!cancelled) {
+        setWorkspace(state);
+        void hydrateTrackingForJobs(state.jobs);
+      }
     });
     refreshServiceAndConfig();
 
@@ -176,6 +181,12 @@ export function App() {
     }
   }, [config]);
 
+  useEffect(() => {
+    if (serviceState === "online" && workspace.jobs.length > 0) {
+      void hydrateTrackingForJobs(workspace.jobs);
+    }
+  }, [serviceState, workspace.jobs.length]);
+
   const focusedJob = useMemo(
     () => workspace.jobs.find((job) => job.id === workspace.focusedJobId) ?? workspace.jobs[0] ?? null,
     [workspace]
@@ -190,6 +201,53 @@ export function App() {
     } catch (error) {
       setServiceState("offline");
       setMessage(error instanceof Error ? error.message : "NxJob local service is offline.");
+    }
+  }
+
+  async function hydrateTrackingForJobs(jobs: JobWorkspaceRecord[]) {
+    if (jobs.length === 0) return;
+
+    try {
+      const entries = await Promise.all(
+        jobs.map(async (job) => {
+          const [applications, outcomes] = await Promise.all([
+            listApplications({ jobLeadId: job.jobLead.id, limit: 1 }),
+            listOutcomes({ jobLeadId: job.jobLead.id, limit: 1 })
+          ]);
+          return {
+            jobId: job.id,
+            application: applications.applications[0] ?? null,
+            outcome: outcomes.outcomes[0] ?? null
+          };
+        })
+      );
+
+      const applications: Record<string, ApplicationRecord> = {};
+      const outcomes: Record<string, OutcomeSignalResponse> = {};
+      for (const entry of entries) {
+        if (entry.application) {
+          applications[entry.jobId] = entry.application;
+        }
+        if (entry.application && entry.outcome) {
+          outcomes[entry.application.id] = {
+            trace_id: "",
+            outcome: entry.outcome,
+            success_reference: {
+              created: false,
+              id: ""
+            }
+          };
+        }
+      }
+
+      if (Object.keys(applications).length > 0) {
+        setApplicationsByJobId((current) => ({ ...current, ...applications }));
+      }
+      if (Object.keys(outcomes).length > 0) {
+        setOutcomesByApplicationId((current) => ({ ...current, ...outcomes }));
+      }
+    } catch {
+      // Tracking hydration is best-effort; capture and tailoring remain usable if local tracking reads fail.
     }
   }
 
@@ -210,6 +268,7 @@ export function App() {
         pageTextLength: context.pageTextExcerpt.length
       });
       const hydratedRecord = await hydrateWorkflowResults(nextRecord);
+      await hydrateTrackingForJobs([hydratedRecord]);
 
       setWorkspace((current) => upsertWorkspaceJob(current, hydratedRecord));
       setMessage(capture.dedupe.is_duplicate ? "Existing JobLead restored from cache." : "Current job captured.");

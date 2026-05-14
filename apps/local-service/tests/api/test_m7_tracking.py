@@ -95,6 +95,35 @@ def test_application_accepts_side_panel_manual_method(tmp_path, monkeypatch) -> 
     assert response.json()["application"]["submitted_by_user"] is True
 
 
+def test_tracking_lists_applications_and_outcomes_for_job(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        resume_id = _create_resume_version(client, job_id)
+        application_id = _create_application(client, job_id, resume_id)
+        outcome = client.post(
+            "/api/v1/outcomes",
+            json={
+                "application_id": application_id,
+                "job_lead_id": job_id,
+                "outcome_type": "positive_reply",
+                "source": "manual",
+                "evidence_text": "Recruiter replied.",
+            },
+        )
+        applications = client.get(f"/api/v1/applications?job_lead_id={job_id}")
+        outcomes = client.get(f"/api/v1/outcomes?job_lead_id={job_id}")
+
+    assert outcome.status_code == 200
+    assert applications.status_code == 200
+    assert applications.json()["applications"][0]["id"] == application_id
+    assert applications.json()["applications"][0]["status"] == "replied"
+    assert outcomes.status_code == 200
+    assert outcomes.json()["outcomes"][0]["outcome_type"] == "positive_reply"
+    assert outcomes.json()["outcomes"][0]["job_lead_id"] == job_id
+
+
 def test_positive_outcome_without_application_uses_latest_resume_version(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
 
