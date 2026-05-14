@@ -375,6 +375,9 @@ class ConfigStatusResponse(TraceResponse):
     ai_provider_configured: bool
     ai_provider_name: str = ""
     ai_model: str = ""
+    ai_reasoning_effort: str = ""
+    ai_profile_id: str = ""
+    ai_profile_display_name: str = ""
     ai_provider_source: str = ""
     resume_output_dir_configured: bool = False
     resume_output_dir: str = ""
@@ -392,12 +395,35 @@ class AiProviderConfigUpdate(BaseModel):
     base_url: str = ""
     model: str = ""
     api_key: str
+    display_name: str = ""
+    reasoning_effort: str = "medium"
+
+
+class AiProviderProfileRecord(BaseModel):
+    id: str
+    display_name: str
+    provider: str
+    base_url: str = ""
+    model: str = ""
+    reasoning_effort: str = "medium"
+    source: str = "private_config"
+    is_active: bool = False
+
+
+class AiProviderProfilesResponse(TraceResponse):
+    profiles: list[AiProviderProfileRecord] = Field(default_factory=list)
+    active_profile_id: str = ""
+
+
+class AiProviderProfileActivateResponse(TraceResponse):
+    profile: AiProviderProfileRecord
 
 
 class ResumeOutputDirectoryUpdate(BaseModel):
     path: str
 
 class FieldContext(BaseModel):
+    field_id: str = ""
     label: str = ""
     placeholder: str = ""
     surrounding_text: str = ""
@@ -419,6 +445,7 @@ class FormAnswerDraftRecord(BaseModel):
     job_lead_id: str
     application_id: str
     created_at: str
+    field_id: str = ""
     field_label: str
     answer: str
     referenced_bullets: list[str] = Field(default_factory=list)
@@ -430,6 +457,21 @@ class FormAnswerDraftRecord(BaseModel):
 class FormAnswerDraftResponse(TraceResponse):
     draft: FormAnswerDraftRecord
     ai_used: bool = True
+
+
+class FormAnswerDraftsCreate(BaseModel):
+    job_lead_id: str
+    application_id: str = ""
+    fields: list[FieldContext]
+    jd_text: str = ""
+    master_resume_bullets: list[MasterResumeBullet] = Field(default_factory=list)
+    profile_vault_id: str = "master_default"
+
+
+class FormAnswerDraftsResponse(TraceResponse):
+    drafts: list[FormAnswerDraftRecord] = Field(default_factory=list)
+    ai_used: bool = True
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WorkflowTraceRecord(BaseModel):

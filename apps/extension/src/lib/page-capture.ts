@@ -23,12 +23,33 @@ export async function captureActiveFieldContext(): Promise<FieldContext> {
   });
 }
 
+export async function scanActiveTabFormFields(): Promise<{ fields: FieldContext[]; url: string; title: string }> {
+  const tab = await getActiveTab();
+  return sendMessageWithContentScriptFallback<{ fields: FieldContext[]; url: string; title: string }>(tab.id, {
+    type: "NXJOB_SCAN_FORM_FIELDS"
+  });
+}
+
 export async function fillActiveField(value: string): Promise<{ filled: boolean }> {
   const tab = await getActiveTab();
   return sendMessageWithContentScriptFallback<{ filled: boolean }>(tab.id, {
     type: "NXJOB_FILL_ACTIVE_FIELD",
     value
   });
+}
+
+export async function fillFormFieldById(fieldId: string, value: string): Promise<{ filled: boolean }> {
+  const tab = await getActiveTab();
+  return sendMessageWithContentScriptFallback<{ filled: boolean }>(tab.id, {
+    type: "NXJOB_FILL_FIELD_BY_ID",
+    fieldId,
+    value
+  });
+}
+
+export async function listOpenTabUrls(): Promise<string[]> {
+  const tabs = await browser.tabs.query({});
+  return tabs.map((tab) => tab.url ?? "").filter((url) => url && !isRestrictedUrl(url));
 }
 
 async function getActiveTab(): Promise<{ id: number; url?: string }> {

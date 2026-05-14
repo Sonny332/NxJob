@@ -195,6 +195,7 @@
           "type": "object",
           "properties": {
             "label": { "type": "string" },
+            "field_id": { "type": "string" },
             "placeholder": { "type": "string" },
             "surrounding_text": { "type": "string" },
             "current_value": { "type": "string" },
@@ -232,6 +233,7 @@
             "job_lead_id",
             "application_id",
             "created_at",
+            "field_id",
             "field_label",
             "answer",
             "referenced_bullets",
@@ -244,6 +246,7 @@
             "job_lead_id": { "type": "string" },
             "application_id": { "type": "string" },
             "created_at": { "type": "string" },
+            "field_id": { "type": "string" },
             "field_label": { "type": "string" },
             "answer": { "type": "string" },
             "referenced_bullets": { "type": "array", "items": { "type": "string" } },
@@ -254,6 +257,46 @@
           "additionalProperties": false
         },
         "ai_used": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftsRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "fields"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field_id": { "type": "string" },
+              "label": { "type": "string" },
+              "placeholder": { "type": "string" },
+              "surrounding_text": { "type": "string" },
+              "current_value": { "type": "string" },
+              "input_type": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "jd_text": { "type": "string" },
+        "profile_vault_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftsResponse": {
+      "type": "object",
+      "required": ["trace_id", "drafts", "ai_used", "warnings"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "drafts": {
+          "type": "array",
+          "items": { "$ref": "#/properties/formAnswerDraftResponse/properties/draft" }
+        },
+        "ai_used": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
@@ -344,6 +387,9 @@
           "ai_provider_configured",
           "ai_provider_name",
           "ai_model",
+          "ai_reasoning_effort",
+          "ai_profile_id",
+          "ai_profile_display_name",
           "ai_provider_source",
           "public_lookup_available",
           "warnings"
@@ -355,6 +401,9 @@
           "ai_provider_configured": { "type": "boolean" },
           "ai_provider_name": { "type": "string" },
           "ai_model": { "type": "string" },
+          "ai_reasoning_effort": { "type": "string" },
+          "ai_profile_id": { "type": "string" },
+          "ai_profile_display_name": { "type": "string" },
           "ai_provider_source": { "type": "string" },
           "public_lookup_available": { "type": "boolean" },
         "warnings": { "type": "array", "items": { "type": "string" } }

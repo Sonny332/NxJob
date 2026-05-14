@@ -122,11 +122,31 @@ export type ConfigStatusResponse = {
   ai_provider_configured: boolean;
   ai_provider_name: string;
   ai_model: string;
+  ai_reasoning_effort: string;
+  ai_profile_id: string;
+  ai_profile_display_name: string;
   ai_provider_source: string;
   resume_output_dir_configured: boolean;
   resume_output_dir: string;
   public_lookup_available: boolean;
   warnings: string[];
+};
+
+export type AiProviderProfileRecord = {
+  id: string;
+  display_name: string;
+  provider: string;
+  base_url: string;
+  model: string;
+  reasoning_effort: string;
+  source: string;
+  is_active: boolean;
+};
+
+export type AiProviderProfilesResponse = {
+  trace_id: string;
+  profiles: AiProviderProfileRecord[];
+  active_profile_id: string;
 };
 
 export type WorkflowResultRecord = {
@@ -239,12 +259,21 @@ export type FormAnswerDraftResponse = {
   trace_id: string;
   draft: {
     id: string;
+    field_id: string;
+    field_label: string;
     answer: string;
     referenced_bullets: string[];
     risk_flags: string[];
     requires_user_review: boolean;
   };
   ai_used: boolean;
+};
+
+export type FormAnswerDraftsResponse = {
+  trace_id: string;
+  drafts: FormAnswerDraftResponse["draft"][];
+  ai_used: boolean;
+  warnings: string[];
 };
 
 export async function checkHealth(): Promise<HealthResponse> {
@@ -512,6 +541,8 @@ export async function saveAiProvider(payload: {
   baseUrl: string;
   model: string;
   apiKey: string;
+  displayName?: string;
+  reasoningEffort?: string;
 }): Promise<ConfigStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-provider`, {
     method: "POST",
@@ -522,8 +553,45 @@ export async function saveAiProvider(payload: {
       provider: payload.provider,
       base_url: payload.baseUrl,
       model: payload.model,
-      api_key: payload.apiKey
+      api_key: payload.apiKey,
+      display_name: payload.displayName ?? "",
+      reasoning_effort: payload.reasoningEffort ?? "medium"
     })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function listAiProviderProfiles(): Promise<AiProviderProfilesResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-profiles`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<AiProviderProfilesResponse>;
+}
+
+export async function activateAiProviderProfile(profileId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-profiles/${encodeURIComponent(profileId)}/activate`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+}
+
+export async function deleteAiProviderProfile(profileId: string): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-profiles/${encodeURIComponent(profileId)}`, {
+    method: "DELETE"
   });
 
   if (!response.ok) {
@@ -603,6 +671,7 @@ export async function draftFormAnswer(
     body: JSON.stringify({
       job_lead_id: jobLead.id,
       field_context: {
+        field_id: fieldContext.fieldId,
         label: fieldContext.label,
         placeholder: fieldContext.placeholder,
         surrounding_text: fieldContext.surroundingText,
@@ -620,6 +689,38 @@ export async function draftFormAnswer(
   }
 
   return response.json() as Promise<FormAnswerDraftResponse>;
+}
+
+export async function draftFormAnswers(
+  jobLead: JobLeadRecord,
+  fields: FieldContext[]
+): Promise<FormAnswerDraftsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/forms/draft-answers`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      job_lead_id: jobLead.id,
+      fields: fields.map((field) => ({
+        field_id: field.fieldId,
+        label: field.label,
+        placeholder: field.placeholder,
+        surrounding_text: field.surroundingText,
+        current_value: field.currentValue,
+        input_type: field.inputType
+      })),
+      jd_text: jobLead.jd_text,
+      profile_vault_id: "master_default"
+    })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<FormAnswerDraftsResponse>;
 }
 
 function inferSourceSite(url: string): SourceSite {

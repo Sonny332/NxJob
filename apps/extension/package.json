@@ -1,6 +1,6 @@
 {
   "name": "@nxjob/extension",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "typecheck": "wxt prepare && tsc --noEmit"
   },
   "dependencies": {
-    "@nxjob/shared": "0.4.3",
+    "@nxjob/shared": "0.5.0",
     "@wxt-dev/module-react": "latest",
     "react": "latest",
     "react-dom": "latest",

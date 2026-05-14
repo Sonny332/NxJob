@@ -2,6 +2,7 @@ import { browser } from "wxt/browser";
 
 import type {
   FormAnswerDraftResponse,
+  FormAnswerDraftsResponse,
   JobLeadRecord,
   ResumeTailorResponse,
   SponsorshipAnalyzeResponse
@@ -28,15 +29,19 @@ export type JobWorkspaceRecord = {
   pageTextLength: number;
   createdAt: string;
   updatedAt: string;
+  visibility: "active" | "hidden";
+  hiddenAt: string;
+  tabPresence: "open" | "closed" | "unknown";
   workflows: {
     sponsorship: WorkflowRun<SponsorshipAnalyzeResponse>;
     resume: WorkflowRun<ResumeTailorResponse>;
-    formAnswer: WorkflowRun<FormAnswerDraftResponse>;
+    formAnswer: WorkflowRun<FormAnswerDraftResponse | FormAnswerDraftsResponse>;
   };
 };
 
 export type WorkspaceState = {
   focusedJobId: string;
+  showHidden: boolean;
   jobs: JobWorkspaceRecord[];
 };
 
@@ -67,6 +72,9 @@ export function createWorkspaceRecord(params: {
     pageTextLength: params.pageTextLength,
     createdAt: now,
     updatedAt: now,
+    visibility: "active",
+    hiddenAt: "",
+    tabPresence: "unknown",
     workflows: {
       sponsorship: emptyWorkflow(),
       resume: emptyWorkflow(),
@@ -84,6 +92,7 @@ export async function saveWorkspaceState(state: WorkspaceState): Promise<void> {
   await browser.storage.local.set({
     [STORAGE_KEY]: {
       focusedJobId: state.focusedJobId,
+      showHidden: state.showHidden,
       jobs: state.jobs.slice(0, 20)
     }
   });
@@ -102,13 +111,16 @@ export function upsertWorkspaceJob(
         pageUrl: record.pageUrl,
         selectedTextLength: record.selectedTextLength,
         pageTextLength: record.pageTextLength,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        visibility: "active" as const,
+        hiddenAt: ""
       }
     : record;
 
   const jobs = [nextRecord, ...state.jobs.filter((job) => job.id !== existing?.id && job.id !== record.id)];
   return {
     focusedJobId: nextRecord.id,
+    showHidden: state.showHidden,
     jobs
   };
 }
@@ -126,12 +138,22 @@ export function updateWorkspaceJob(
 
 function normalizeWorkspaceState(value: unknown): WorkspaceState {
   if (!value || typeof value !== "object") {
-    return { focusedJobId: "", jobs: [] };
+    return { focusedJobId: "", showHidden: false, jobs: [] };
   }
 
   const candidate = value as Partial<WorkspaceState>;
   return {
     focusedJobId: typeof candidate.focusedJobId === "string" ? candidate.focusedJobId : "",
-    jobs: Array.isArray(candidate.jobs) ? candidate.jobs : []
+    showHidden: typeof candidate.showHidden === "boolean" ? candidate.showHidden : false,
+    jobs: Array.isArray(candidate.jobs) ? candidate.jobs.map(normalizeJobRecord) : []
+  };
+}
+
+function normalizeJobRecord(job: JobWorkspaceRecord): JobWorkspaceRecord {
+  return {
+    ...job,
+    visibility: job.visibility === "hidden" ? "hidden" : "active",
+    hiddenAt: typeof job.hiddenAt === "string" ? job.hiddenAt : "",
+    tabPresence: ["open", "closed", "unknown"].includes(job.tabPresence) ? job.tabPresence : "unknown"
   };
 }

@@ -63,7 +63,7 @@ Response:
 {
   "status": "ok",
   "service": "nxjob-local-service",
-  "version": "0.4.3"
+  "version": "0.5.0"
 }
 ```
 
@@ -270,11 +270,28 @@ Response includes:
 {
   "master_resume_configured": true,
   "ai_provider_configured": true,
+  "ai_profile_id": "aip_xxx",
+  "ai_profile_display_name": "DeepSeek Pro",
+  "ai_provider_name": "deepseek_v4_pro",
+  "ai_model": "deepseek-v4-pro",
+  "ai_reasoning_effort": "high",
   "resume_output_dir_configured": true,
   "resume_output_dir": "D:\\Resume\\NxJob Generated",
   "warnings": []
 }
 ```
+
+### GET /api/v1/config/ai-profiles
+
+Purpose: list saved local AI provider profiles without exposing API keys.
+
+### POST /api/v1/config/ai-profiles/{profile_id}/activate
+
+Purpose: switch the active AI profile used by sponsorship and resume workflows.
+
+### DELETE /api/v1/config/ai-profiles/{profile_id}
+
+Purpose: remove one saved private AI profile. This does not affect environment fallback settings.
 
 ### POST /api/v1/config/resume-output-directory
 
@@ -308,6 +325,7 @@ Request:
   "job_lead_id": "string",
   "application_id": "string",
   "field_context": {
+    "field_id": "string",
     "label": "string",
     "placeholder": "string",
     "surrounding_text": "string",
@@ -393,6 +411,57 @@ Response:
   "job_lead_id": "string",
   "resume_version_id": "string",
   "status": "applied"
+}
+```
+
+### POST /api/v1/forms/draft-answers
+
+Purpose: draft answers for multiple detected form fields in one user-reviewed batch.
+
+Rules:
+
+- Fixed profile answers do not consume AI.
+- Open-ended questions use JD keywords and matching master resume bullets.
+- Sensitive fields such as SSN, password, EEOC, disability, race, gender, and veteran fields should be skipped or require explicit user review in the plugin.
+- Response drafts are never submitted automatically.
+
+Request:
+
+```json
+{
+  "job_lead_id": "string",
+  "fields": [
+    {
+      "field_id": "string",
+      "label": "string",
+      "placeholder": "string",
+      "surrounding_text": "string",
+      "current_value": "string",
+      "input_type": "textarea"
+    }
+  ],
+  "jd_text": "string"
+}
+```
+
+Response:
+
+```json
+{
+  "trace_id": "string",
+  "drafts": [
+    {
+      "id": "string",
+      "field_id": "string",
+      "field_label": "string",
+      "answer": "string",
+      "referenced_bullets": ["string"],
+      "risk_flags": ["string"],
+      "requires_user_review": true
+    }
+  ],
+  "ai_used": true,
+  "warnings": ["Review every answer before filling or submitting the application."]
 }
 ```
 

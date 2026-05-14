@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 
-import { captureActiveFieldContext, capturePageContext, fillActiveField } from "../src/lib/form-context";
+import { captureActiveFieldContext, capturePageContext, fillActiveField, fillFieldById, scanFormFields } from "../src/lib/form-context";
 
 export default defineContentScript({
   matches: ["<all_urls>"],
@@ -13,6 +13,16 @@ export default defineContentScript({
 
       if (message?.type === "NXJOB_FILL_ACTIVE_FIELD") {
         sendResponse(fillActiveField(message.value ?? ""));
+        return true;
+      }
+
+      if (message?.type === "NXJOB_SCAN_FORM_FIELDS") {
+        sendResponse(scanFormFields());
+        return true;
+      }
+
+      if (message?.type === "NXJOB_FILL_FIELD_BY_ID") {
+        sendResponse(fillFieldById(message.fieldId ?? "", message.value ?? ""));
         return true;
       }
 
