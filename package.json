@@ -1,0 +1,21 @@
+{
+  "name": "nxjob",
+  "version": "0.5.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "NxJob MVP monorepo",
+  "workspaces": [
+    "apps/extension",
+    "packages/shared"
+  ],
+  "scripts": {
+    "extension:dev": "npm --workspace @nxjob/extension run dev",
+    "extension:build": "npm --workspace @nxjob/extension run build",
+    "extension:typecheck": "npm --workspace @nxjob/extension run typecheck",
+    "extension:zip": "npm --workspace @nxjob/extension run zip",
+    "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package/build-release.ps1",
+    "release:validate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package/validate-release.ps1",
+    "shared:check": "npm --workspace @nxjob/shared run check"
+  }
+}
+

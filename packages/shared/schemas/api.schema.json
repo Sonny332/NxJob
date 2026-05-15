@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nxjob.local/schemas/api.schema.json",
+  "title": "NxJob Phase 1 API Schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "0.4.1"
+    },
+    "sponsorshipStatus": {
+      "enum": [
+        "supports",
+        "does_not_support",
+        "likely_supports",
+        "likely_not_supports",
+        "needs_confirmation",
+        "unknown"
+      ]
+    },
+    "applicationStatus": {
+      "enum": [
+        "captured",
+        "reviewing",
+        "skipped",
+        "tailored",
+        "ready_to_apply",
+        "applied",
+        "replied",
+        "interviewing",
+        "offer",
+        "rejected",
+        "closed"
+      ]
+    },
+    "workflowName": {
+      "enum": [
+        "analyze_sponsorship",
+        "tailor_resume",
+        "draft_form_answer_from_resume_bullets"
+      ]
+    },
+    "sponsorshipAnalyzeRequest": {
+      "type": "object",
+      "required": ["job_lead_id"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "jd_text": { "type": "string" },
+        "company_name": { "type": "string" },
+        "job_url": { "type": "string" },
+        "application_form_text": { "type": "string" },
+        "allow_public_lookup": { "type": "boolean" },
+        "allow_ai": { "type": "boolean" },
+        "force_refresh": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "sponsorshipAnalyzeResponse": {
+      "type": "object",
+      "required": ["trace_id", "sponsorship", "evidence", "ai_used", "cache"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "sponsorship": {
+          "type": "object",
+          "required": [
+            "status",
+            "confidence",
+            "summary",
+            "risk_flags",
+            "questions_to_confirm",
+            "is_legal_conclusion"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "supports",
+                "does_not_support",
+                "likely_supports",
+                "likely_not_supports",
+                "needs_confirmation",
+                "unknown"
+              ]
+            },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "summary": { "type": "string" },
+            "risk_flags": { "type": "array", "items": { "type": "string" } },
+            "questions_to_confirm": { "type": "array", "items": { "type": "string" } },
+            "is_legal_conclusion": { "const": false }
+          },
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "evidence_text", "evidence_url", "confidence"],
+            "properties": {
+              "source": { "type": "string" },
+              "evidence_text": { "type": "string" },
+              "evidence_url": { "type": "string" },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "ai_used": { "type": "boolean" },
+        "cache": { "$ref": "#/properties/workflowCacheInfo" }
+      },
+      "additionalProperties": false
+    },
+    "resumeTailorRequest": {
+      "type": "object",
+      "required": ["job_lead_id"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "master_resume_id": { "type": "string" },
+        "candidate_name": { "type": "string" },
+        "contact_line": { "type": "string" },
+        "master_resume_bullets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "format": { "const": "docx" },
+            "target_length": { "type": "string" },
+            "ats_friendly": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "success_reference_limit": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "force_refresh": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "resumeTailorResponse": {
+      "type": "object",
+      "required": ["trace_id", "resume_version", "used_success_references", "warnings", "cache"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "resume_version": {
+          "type": "object",
+          "required": [
+            "id",
+            "job_lead_id",
+            "source_master_resume_id",
+            "created_at",
+            "format",
+            "file_path",
+            "selected_bullets",
+            "change_summary",
+            "ai_output",
+            "prompt_log_id",
+            "version_label",
+            "user_approved"
+          ],
+          "properties": {
+            "id": { "type": "string" },
+            "job_lead_id": { "type": "string" },
+            "source_master_resume_id": { "type": "string" },
+            "created_at": { "type": "string" },
+            "format": { "const": "docx" },
+            "file_path": { "type": "string" },
+            "selected_bullets": { "type": "array", "items": { "type": "string" } },
+            "change_summary": { "type": "string" },
+            "ai_output": { "type": "object" },
+            "prompt_log_id": { "type": "string" },
+            "version_label": { "type": "string" },
+            "user_approved": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "used_success_references": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "cache": { "$ref": "#/properties/workflowCacheInfo" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "field_context"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "field_context": {
+          "type": "object",
+          "properties": {
+            "label": { "type": "string" },
+            "field_id": { "type": "string" },
+            "placeholder": { "type": "string" },
+            "surrounding_text": { "type": "string" },
+            "current_value": { "type": "string" },
+            "input_type": { "type": "string" },
+            "required": { "type": "boolean" },
+            "options": { "type": "array", "items": { "type": "string" } },
+            "sensitive_kind": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "jd_text": { "type": "string" },
+        "master_resume_bullets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "profile_vault_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftResponse": {
+      "type": "object",
+      "required": ["trace_id", "draft", "ai_used"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "draft": {
+          "type": "object",
+          "required": [
+            "id",
+            "job_lead_id",
+            "application_id",
+            "created_at",
+            "field_id",
+            "field_label",
+            "answer",
+            "referenced_bullets",
+            "risk_flags",
+            "requires_user_review",
+            "prompt_log_id"
+          ],
+          "properties": {
+            "id": { "type": "string" },
+            "job_lead_id": { "type": "string" },
+            "application_id": { "type": "string" },
+            "created_at": { "type": "string" },
+            "field_id": { "type": "string" },
+            "field_label": { "type": "string" },
+            "answer": { "type": "string" },
+            "referenced_bullets": { "type": "array", "items": { "type": "string" } },
+            "risk_flags": { "type": "array", "items": { "type": "string" } },
+            "requires_user_review": { "const": true },
+            "prompt_log_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "ai_used": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftsRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "fields"],
+      "properties": {
+        "job_lead_id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field_id": { "type": "string" },
+              "label": { "type": "string" },
+              "placeholder": { "type": "string" },
+              "surrounding_text": { "type": "string" },
+              "current_value": { "type": "string" },
+              "input_type": { "type": "string" },
+              "required": { "type": "boolean" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "sensitive_kind": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "jd_text": { "type": "string" },
+        "profile_vault_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "formAnswerDraftsResponse": {
+      "type": "object",
+      "required": ["trace_id", "drafts", "ai_used", "warnings"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "drafts": {
+          "type": "array",
+          "items": { "$ref": "#/properties/formAnswerDraftResponse/properties/draft" }
+        },
+        "ai_used": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "outcomeSignalRequest": {
+      "type": "object",
+      "required": ["job_lead_id", "outcome_type"],
+      "properties": {
+        "application_id": { "type": "string" },
+        "job_lead_id": { "type": "string" },
+        "outcome_type": {
+          "enum": [
+            "positive_reply",
+            "screen",
+            "interview",
+            "offer",
+            "rejection",
+            "no_response",
+            "closed"
+          ]
+        },
+        "outcome_at": { "type": "string" },
+        "source": {
+          "enum": ["email", "manual", "recruiter_message", "calendar", "other"]
+        },
+        "evidence_text": { "type": "string" },
+        "evidence_url": { "type": "string" },
+        "user_notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "successReference": {
+      "type": "object",
+      "required": [
+        "id",
+        "application_id",
+        "job_lead_id",
+        "resume_version_id",
+        "outcome_type",
+        "outcome_at",
+        "source",
+        "search_query",
+        "effective_keywords",
+        "effective_bullets",
+        "user_notes"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "job_lead_id": { "type": "string" },
+        "resume_version_id": { "type": "string" },
+        "outcome_type": { "type": "string" },
+        "outcome_at": { "type": "string" },
+        "source": { "type": "string" },
+        "search_query": { "type": "string" },
+        "effective_keywords": { "type": "array", "items": { "type": "string" } },
+        "effective_bullets": { "type": "array", "items": { "type": "string" } },
+        "user_notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "successReferenceListResponse": {
+      "type": "object",
+      "required": ["trace_id", "success_references"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "success_references": {
+          "type": "array",
+          "items": { "$ref": "#/properties/successReference" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowCacheInfo": {
+      "type": "object",
+      "required": ["hit", "cache_key"],
+      "properties": {
+        "hit": { "type": "boolean" },
+        "cache_key": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "configStatusResponse": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "master_resume_configured",
+        "master_resume_source",
+          "ai_provider_configured",
+          "ai_provider_name",
+          "ai_model",
+          "ai_reasoning_effort",
+          "ai_profile_id",
+          "ai_profile_display_name",
+          "ai_provider_source",
+          "public_lookup_available",
+          "warnings"
+      ],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "master_resume_configured": { "type": "boolean" },
+        "master_resume_source": { "type": "string" },
+          "ai_provider_configured": { "type": "boolean" },
+          "ai_provider_name": { "type": "string" },
+          "ai_model": { "type": "string" },
+          "ai_reasoning_effort": { "type": "string" },
+          "ai_profile_id": { "type": "string" },
+          "ai_profile_display_name": { "type": "string" },
+          "ai_provider_source": { "type": "string" },
+          "public_lookup_available": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "workflowResultsResponse": {
+      "type": "object",
+      "required": ["trace_id", "results"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "job_lead_id",
+              "workflow_name",
+              "cache_key",
+              "created_at",
+              "trace_id",
+              "status",
+              "result_summary",
+              "response"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "job_lead_id": { "type": "string" },
+              "workflow_name": { "type": "string" },
+              "cache_key": { "type": "string" },
+              "created_at": { "type": "string" },
+              "trace_id": { "type": "string" },
+              "status": { "type": "string" },
+              "result_summary": { "type": "string" },
+              "response": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["schemaVersion"]
+}
+
