@@ -221,6 +221,88 @@ def test_draft_answer_choice_field_requires_matching_option(tmp_path, monkeypatc
     assert body["draft"]["answer"] == "Hybrid"
 
 
+def test_work_authorization_question_does_not_reuse_sponsorship_fact_as_answer(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Are you legally authorized to work in the United States?",
+                    "surrounding_text": "Answer this work authorization question.",
+                    "input_type": "text",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["draft"]["answer"] != "Requires employer sponsorship now or in the future."
+    assert any("manual review" in flag.lower() for flag in body["draft"]["risk_flags"])
+
+
+def test_sponsorship_choice_field_maps_fixed_fact_to_option(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Will you now or in the future require visa sponsorship?",
+                    "input_type": "radio",
+                    "options": ["Yes", "No"],
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] == "Yes"
+
+
+def test_sponsorship_choice_field_maps_negative_fixed_fact_to_option(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(
+        tmp_path,
+        fixed_answers={
+            "email": "candidate@example.com",
+            "phone": "555-000-0000",
+            "work authorization": "I will not require employer sponsorship now or in the future.",
+        },
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Will you now or in the future require visa sponsorship?",
+                    "input_type": "radio",
+                    "options": ["Yes", "No"],
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] == "No"
+
+
 def test_tailor_resume_can_load_private_master_resume(tmp_path, monkeypatch) -> None:
     master_path = _write_master_resume(tmp_path)
     monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
@@ -254,7 +336,7 @@ def _capture_job(client: TestClient) -> str:
     return response.json()["job_lead"]["id"]
 
 
-def _write_master_resume(tmp_path) -> str:
+def _write_master_resume(tmp_path, fixed_answers: dict[str, str] | None = None) -> str:
     path = tmp_path / "master_resume.json"
     path.write_text(
         json.dumps(
@@ -269,7 +351,8 @@ def _write_master_resume(tmp_path) -> str:
                         "tags": ["Python", "FastAPI", "automation"],
                     }
                 ],
-                "fixed_answers": {
+                "fixed_answers": fixed_answers
+                or {
                     "email": "candidate@example.com",
                     "phone": "555-000-0000",
                     "work authorization": "Requires employer sponsorship now or in the future.",

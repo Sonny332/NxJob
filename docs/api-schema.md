@@ -63,7 +63,7 @@ Response:
 {
   "status": "ok",
   "service": "nxjob-local-service",
-  "version": "0.5.0"
+  "version": "0.5.1"
 }
 ```
 
