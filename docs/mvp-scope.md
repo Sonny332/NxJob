@@ -74,9 +74,14 @@ The detailed M0-M8 list below records the historical build plan and can still be
 
 ## Post-MVP Backlog
 
-These improvements are important but are not required for the 0.5.x public MVP release line:
+Current MVP closure line:
 
-- Expand Fill Form Answer into a guided one-click form-fill workflow for text fields, single-select, multi-select, radio buttons, and checkboxes while keeping final submission manual.
+- `0.6.0 Capture & Form Reliability`: stabilize structured job title/company capture, user-readable artifact filenames, and field-specific form answer drafting.
+- `0.7.0 MVP Closure & Daily Use Hardening`: finish daily-use polish, release validation, and any remaining blocker fixes before treating the project as MVP-complete.
+
+These improvements are important but are not required before 0.7.0 MVP closure:
+
+- Expand Fill Form Answer into a guided one-click full-form workflow for text fields, single-select, multi-select, radio buttons, and checkboxes while keeping final submission manual.
 - Improve Tailor Resume line utilization and bullet density, with special attention to free Gemini API behavior while keeping other OpenAI-compatible providers supported.
 - Reduce manual JD selection by detecting the primary job-description region on LinkedIn, Indeed, and common ATS pages.
 

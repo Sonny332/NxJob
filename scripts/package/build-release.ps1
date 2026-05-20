@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.5.1",
+  [string]$Version = "0.6.0",
   [switch]$SkipChecks,
   [switch]$SkipValidation
 )
@@ -44,6 +44,7 @@ try {
 
     $testRuntimeDir = Join-Path $root (".nxjob\release-test\run-" + [System.Guid]::NewGuid().ToString("N"))
     $testTempDir = Join-Path $testRuntimeDir "temp"
+    $testPytestBaseTempDir = Join-Path $testRuntimeDir "pytest-basetemp"
     $testLocalAppDataDir = Join-Path $testRuntimeDir "localappdata"
     $testGeneratedResumeDir = Join-Path $testRuntimeDir "generated-resumes"
     New-Item -ItemType Directory -Force -Path $testTempDir | Out-Null
@@ -51,6 +52,7 @@ try {
     New-Item -ItemType Directory -Force -Path $testGeneratedResumeDir | Out-Null
     $env:TEMP = $testTempDir
     $env:TMP = $testTempDir
+    $env:PYTEST_DEBUG_TEMPROOT = $testRuntimeDir
     $env:LOCALAPPDATA = $testLocalAppDataDir
     $env:NXJOB_DB_PATH = Join-Path $testRuntimeDir "nxjob-test.sqlite3"
     $env:NXJOB_GENERATED_RESUME_DIR = $testGeneratedResumeDir
@@ -60,8 +62,9 @@ try {
       "pytest",
       "apps\local-service\tests",
       "-q",
+      "--tb=short",
       "--basetemp",
-      $testTempDir,
+      $testPytestBaseTempDir,
       "-p",
       "no:cacheprovider"
     )

@@ -20,6 +20,12 @@ class FormAnswerDraft:
     risk_flags: list[str]
     ai_used: bool
     token_usage: dict[str, int]
+    question_text: str = ""
+    intent: str = "custom"
+    answer_type: str = "text"
+    confidence: float = 0.0
+    selected_option: str = ""
+    evidence_summary: list[str] | None = None
 
 
 def draft_form_answer(
@@ -30,6 +36,9 @@ def draft_form_answer(
     ai_config: AiProviderConfig | None = None,
 ) -> FormAnswerDraft:
     field_text = _field_text(field_context)
+    question_text = _question_text(field_context)
+    intent = _classify_intent(field_context)
+    answer_type = _answer_type(field_context)
     fixed_answer = _fixed_answer(field_context, master_resume.fixed_answers)
     if fixed_answer is not None:
         return FormAnswerDraft(
@@ -38,10 +47,28 @@ def draft_form_answer(
             risk_flags=[],
             ai_used=False,
             token_usage={"input_chars": len(field_text), "output_chars": len(fixed_answer)},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.95,
+            selected_option=fixed_answer if _is_choice_field(field_context) else "",
         )
 
     bullets = request_bullets or master_resume.bullets
     selected = _select_bullets(job_lead.jd_text, field_text, bullets)
+    if intent == "salary":
+        answer = "I am open to discussing compensation based on the role scope, total package, and market range."
+        return FormAnswerDraft(
+            answer=answer,
+            referenced_bullets=[],
+            risk_flags=["Salary answer requires manual review before filling."],
+            ai_used=False,
+            token_usage={"input_chars": len(field_text), "output_chars": len(answer)},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.7,
+        )
     if ai_config is not None:
         try:
             return _draft_with_ai(job_lead, field_context, selected, ai_config)
@@ -56,6 +83,11 @@ def draft_form_answer(
                 ],
                 ai_used=False,
                 token_usage={"input_chars": len(job_lead.jd_text) + len(field_text), "output_chars": len(fallback)},
+                question_text=question_text,
+                intent=intent,
+                answer_type=answer_type,
+                confidence=0.45,
+                evidence_summary=[bullet.text for bullet in selected[:2]],
             )
 
     answer = _draft_open_answer(field_text, selected)
@@ -74,6 +106,11 @@ def draft_form_answer(
             "input_chars": len(job_lead.jd_text) + len(field_text) + sum(len(bullet.text) for bullet in bullets),
             "output_chars": len(answer),
         },
+        question_text=question_text,
+        intent=intent,
+        answer_type=answer_type,
+        confidence=0.55 if selected else 0.3,
+        evidence_summary=[bullet.text for bullet in selected[:2]],
     )
 
 
@@ -82,6 +119,7 @@ def _field_text(field_context: FieldContext) -> str:
         value.strip()
         for value in [
             field_context.label,
+            field_context.question_text,
             field_context.placeholder,
             field_context.surrounding_text,
             field_context.input_type,
@@ -97,16 +135,21 @@ def _draft_with_ai(
     ai_config: AiProviderConfig,
 ) -> FormAnswerDraft:
     result = request_json_object(ai_config, _ai_messages(job_lead, field_context, selected), timeout_seconds=45)
+    question_text = _clean_string(result.data.get("question_text")) or _question_text(field_context)
+    intent = _clean_string(result.data.get("intent")) or _classify_intent(field_context)
+    answer_type = _clean_string(result.data.get("answer_type")) or _answer_type(field_context)
     answer = _clean_string(result.data.get("answer"))
     if not answer:
         raise AiProviderError("invalid_response", "AI provider did not return a form answer.")
 
     risk_flags = _string_list(result.data.get("risk_flags"))
+    confidence = _confidence(result.data.get("confidence"), 0.75)
     referenced = [
         bullet_id
         for bullet_id in _string_list(result.data.get("referenced_bullets"))
         if any(bullet.id == bullet_id for bullet in selected)
     ]
+    selected_option = ""
 
     if _is_choice_field(field_context):
         matched = _match_option(answer, field_context.options)
@@ -123,8 +166,14 @@ def _draft_with_ai(
                 ],
                 ai_used=True,
                 token_usage=_token_usage(result.token_usage),
+                question_text=question_text,
+                intent=intent,
+                answer_type=answer_type,
+                confidence=min(confidence, 0.35),
+                evidence_summary=[bullet.text for bullet in selected[:2]],
             )
         answer = matched
+        selected_option = matched
 
     return FormAnswerDraft(
         answer=answer,
@@ -132,6 +181,12 @@ def _draft_with_ai(
         risk_flags=risk_flags or ["User review required before filling or submitting."],
         ai_used=True,
         token_usage=_token_usage(result.token_usage),
+        question_text=question_text,
+        intent=intent,
+        answer_type=answer_type,
+        confidence=confidence,
+        selected_option=selected_option,
+        evidence_summary=[bullet.text for bullet in selected[:2]],
     )
 
 
@@ -151,6 +206,7 @@ def _ai_messages(
     user = {
         "field": {
             "label": field_context.label,
+            "question_text": _question_text(field_context),
             "placeholder": field_context.placeholder,
             "surrounding_text": field_context.surrounding_text[:1000],
             "input_type": field_context.input_type,
@@ -167,8 +223,12 @@ def _ai_messages(
             for bullet in selected[:5]
         ],
         "required_json": {
+            "question_text": "string; the form question being answered",
+            "intent": "one of fixed_personal_fact, work_authorization, sponsorship, relocation, availability, salary, why_fit, motivation, experience, skills, custom",
+            "answer_type": "text, single_choice, multi_choice, boolean, date, number",
             "answer": "string; for choice fields use the exact matching option text",
             "option": "string; exact option text when choosing from options, otherwise empty",
+            "confidence": "number between 0 and 1",
             "referenced_bullets": ["bullet_id"],
             "risk_flags": ["short review warning if needed"],
         },
@@ -322,6 +382,61 @@ def _match_option(answer: str, options: list[str]) -> str | None:
         if clean_option and clean_option in clean_answer:
             return option
     return None
+
+
+def _question_text(field_context: FieldContext) -> str:
+    for value in [field_context.question_text, field_context.label, field_context.placeholder]:
+        if value.strip():
+            return value.strip()
+    text = field_context.surrounding_text.strip()
+    if not text:
+        return ""
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return first_line[:240]
+
+
+def _classify_intent(field_context: FieldContext) -> str:
+    field_text = _field_text(field_context)
+    if _asks_sponsorship(field_text):
+        return "sponsorship"
+    if _asks_work_authorization(field_text):
+        return "work_authorization"
+    if any(term in field_text for term in ["salary", "compensation", "pay expectation", "desired pay"]):
+        return "salary"
+    if any(term in field_text for term in ["relocat", "commute", "location", "hybrid", "remote", "onsite", "on-site"]):
+        return "relocation"
+    if any(term in field_text for term in ["available", "start date", "notice period"]):
+        return "availability"
+    if "why" in field_text and any(term in field_text for term in ["fit", "qualified", "good candidate", "best candidate"]):
+        return "why_fit"
+    if any(term in field_text for term in ["interest", "motivation", "why do you want"]):
+        return "motivation"
+    if any(term in field_text for term in ["experience", "describe", "tell us about"]):
+        return "experience"
+    if any(term in field_text for term in ["skill", "tool", "software", "proficient"]):
+        return "skills"
+    if any(term in field_text for term in ["email", "phone", "linkedin", "portfolio", "address"]):
+        return "fixed_personal_fact"
+    return "custom"
+
+
+def _answer_type(field_context: FieldContext) -> str:
+    input_type = field_context.input_type.strip().lower()
+    if input_type in {"select", "radio"}:
+        return "single_choice"
+    if input_type == "checkbox":
+        return "multi_choice" if len(field_context.options) > 1 else "boolean"
+    if input_type in {"number", "tel"}:
+        return "number" if input_type == "number" else "text"
+    if input_type in {"date", "datetime-local", "month"}:
+        return "date"
+    return "text"
+
+
+def _confidence(value: Any, default: float) -> float:
+    if isinstance(value, int | float):
+        return max(0.0, min(1.0, float(value)))
+    return default
 
 
 def _clean_string(value: Any) -> str:

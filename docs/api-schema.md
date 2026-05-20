@@ -63,7 +63,7 @@ Response:
 {
   "status": "ok",
   "service": "nxjob-local-service",
-  "version": "0.5.1"
+  "version": "0.6.0"
 }
 ```
 
@@ -78,9 +78,16 @@ Request:
   "source_url": "string",
   "source_site": "linkedin",
   "page_title": "string",
+  "company_name": "string",
+  "job_title": "string",
+  "location": "string",
   "selected_text": "string",
   "page_text_excerpt": "string",
   "platform_insights": {},
+  "capture_metadata": {
+    "source": "linkedin_job_detail",
+    "confidence": 0.9
+  },
   "search_query": "string",
   "user_notes": "string"
 }
@@ -216,7 +223,7 @@ Rules:
 - If `master_resume_bullets` is omitted, the local service reads the private JSON file configured by `NXJOB_MASTER_RESUME_PATH`.
 - MVP only supports `constraints.format: "docx"`.
 - The generated DOCX and Markdown are written by the local service under the configured resume output folder.
-- The default filename policy is `YYYY-MM-DD_<company>_<job-title>_resume`, with safe path characters and `_v2` suffixes for collisions.
+- The default filename policy is `<candidate>_<company>_<job-title>_resume_YYYY-MM-DD`, with safe path characters and `_v2` suffixes for collisions.
 - Each call creates a new `ResumeVersion`; repeated calls for the same JD preserve versions.
 - `PromptLog` stores input summary, output summary, provider/model label, token-like usage, and trace id.
 - When an AI provider is configured, provider failures return plugin-readable errors such as authentication failure, rate limit, network failure, timeout, provider unavailable, or invalid response. Error logs store only sanitized categories.
@@ -327,6 +334,7 @@ Request:
   "field_context": {
     "field_id": "string",
     "label": "string",
+    "question_text": "string",
     "placeholder": "string",
     "surrounding_text": "string",
     "current_value": "string",
@@ -353,6 +361,7 @@ Rules:
 - `requires_user_review` is always `true`.
 - Fixed answers can return `ai_used: false`.
 - Open-ended AI answers return referenced bullet ids and risk flags.
+- Drafts include detected question text, intent, answer type, confidence, selected option, and evidence summary so the plugin can show why the answer fits the field.
 - Choice fields with `options` should return an exact available option or a warning for manual selection.
 - If `master_resume_bullets` is omitted, the local service reads `NXJOB_MASTER_RESUME_PATH`.
 - Filling a field is a plugin UI confirmation action, not a backend submit action.
@@ -364,6 +373,14 @@ Response:
   "trace_id": "string",
   "draft": {
     "id": "string",
+    "field_id": "string",
+    "field_label": "string",
+    "question_text": "string",
+    "intent": "why_fit",
+    "answer_type": "text",
+    "confidence": 0.85,
+    "selected_option": "",
+    "evidence_summary": ["string"],
     "answer": "string",
     "referenced_bullets": ["string"],
     "risk_flags": ["string"],
@@ -440,6 +457,7 @@ Request:
     {
       "field_id": "string",
       "label": "string",
+      "question_text": "string",
       "placeholder": "string",
       "surrounding_text": "string",
       "current_value": "string",
@@ -460,6 +478,12 @@ Response:
       "id": "string",
       "field_id": "string",
       "field_label": "string",
+      "question_text": "string",
+      "intent": "custom",
+      "answer_type": "text",
+      "confidence": 0.5,
+      "selected_option": "",
+      "evidence_summary": ["string"],
       "answer": "string",
       "referenced_bullets": ["string"],
       "risk_flags": ["string"],

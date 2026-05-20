@@ -63,6 +63,9 @@ def row_to_job_lead(row: sqlite3.Row) -> JobLeadRecord:
 def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> tuple[JobLeadRecord, str | None]:
     text = payload.selected_text or payload.page_text_excerpt
     digest = jd_hash(text)
+    platform_insights = dict(payload.platform_insights)
+    if payload.capture_metadata:
+        platform_insights["capture_metadata"] = payload.capture_metadata
     duplicate = connection.execute(
         "SELECT id FROM job_leads WHERE jd_hash = ? ORDER BY captured_at DESC LIMIT 1",
         (digest,),
@@ -72,20 +75,24 @@ def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> 
     connection.execute(
         """
         INSERT INTO job_leads (
-          id, source_url, source_site, page_title, captured_at, jd_text, jd_hash,
+          id, source_url, source_site, page_title, company_name, job_title, location,
+          captured_at, jd_text, jd_hash,
           platform_insights_json, search_query, status, user_notes
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured', ?)
         """,
         (
             record_id,
             str(payload.source_url),
             payload.source_site,
             payload.page_title,
+            payload.company_name,
+            payload.job_title,
+            payload.location,
             utc_now(),
             text,
             digest,
-            json.dumps(payload.platform_insights, ensure_ascii=False),
+            json.dumps(platform_insights, ensure_ascii=False),
             payload.search_query,
             payload.user_notes,
         ),

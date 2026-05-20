@@ -79,6 +79,9 @@ def test_create_and_read_core_records(tmp_path, monkeypatch) -> None:
                 "source_url": "https://example.com/jobs/123",
                 "source_site": "company_ats",
                 "page_title": "Software Engineer",
+                "job_title": "Controls Engineer",
+                "company_name": "ACME Controls",
+                "location": "Boston, MA",
                 "selected_text": "We sponsor qualified candidates for this role.",
                 "platform_insights": {"source": "manual"},
                 "search_query": "software engineer h1b",
@@ -93,6 +96,9 @@ def test_create_and_read_core_records(tmp_path, monkeypatch) -> None:
         read_job = client.get(f"/api/v1/job-leads/{job_id}")
         assert read_job.status_code == 200
         assert read_job.json()["jd_text"] == "We sponsor qualified candidates for this role."
+        assert read_job.json()["job_title"] == "Controls Engineer"
+        assert read_job.json()["company_name"] == "ACME Controls"
+        assert read_job.json()["location"] == "Boston, MA"
 
         resume_response = client.post(
             "/api/v1/resume-versions",

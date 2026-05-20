@@ -5,6 +5,11 @@ import type { FieldContext } from "./form-context";
 export type PageContext = {
   url: string;
   title: string;
+  jobTitle?: string;
+  companyName?: string;
+  location?: string;
+  metadataSource?: string;
+  metadataConfidence?: number;
   selectedText: string;
   pageTextExcerpt: string;
 };

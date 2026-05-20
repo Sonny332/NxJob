@@ -82,7 +82,7 @@ def test_tailor_resume_generates_docx_and_resume_version(tmp_path, monkeypatch) 
     assert "Selected" in body["resume_version"]["change_summary"]
     assert body["docx_path"] == body["resume_version"]["file_path"]
     assert body["markdown_path"].endswith(".md")
-    assert body["filename_base"].endswith("_resume")
+    assert "_resume_20" in body["filename_base"]
     assert body["layout_budget"]["max_body_lines"] == 55
     assert body["quality_checks"]["summary_avoids_fixed_year_count"] is True
 
@@ -740,6 +740,8 @@ def test_tailor_resume_uses_safe_date_company_job_filename(tmp_path, monkeypatch
                 "source_url": "https://example.com/jobs/tailor-test",
                 "source_site": "company_ats",
                 "page_title": "Data/Automation: Engineer* at ACME|Controls?",
+                "company_name": "ACME|Controls?",
+                "job_title": "Data/Automation: Engineer*",
                 "selected_text": "Data automation role using Python and APIs.",
             },
         )
@@ -748,6 +750,7 @@ def test_tailor_resume_uses_safe_date_company_job_filename(tmp_path, monkeypatch
             "/api/v1/resumes/tailor",
             json={
                 "job_lead_id": job_id,
+                "candidate_name": "Test Candidate",
                 "master_resume_bullets": [
                     {
                         "id": "bullet_api",
@@ -760,8 +763,7 @@ def test_tailor_resume_uses_safe_date_company_job_filename(tmp_path, monkeypatch
 
     assert response.status_code == 200
     filename = response.json()["filename_base"]
-    assert filename.startswith("20")
-    assert filename.endswith("_resume")
+    assert filename.startswith("Test_Candidate_ACME_Controls_Data_Automation_Engineer_resume_20")
     assert not any(character in filename for character in '/\\:*?"<>|')
 
 
