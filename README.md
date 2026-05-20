@@ -4,7 +4,7 @@ NxJob is a lightweight job-application copilot. It is designed to reduce repetit
 
 ## Status
 
-NxJob is in MVP development. The default distribution path is release artifacts, not source-code setup.
+NxJob is a public MVP preview. The default distribution path is release artifacts, not source-code setup.
 
 ## User Install Path
 
@@ -15,7 +15,7 @@ For non-technical users, NxJob should be distributed as:
 
 Use `docs/install-windows.md` for the installer path.
 
-Current MVP installer note: download the `NxJob-<version>.zip` release package, unzip it, and use the root `.bat` files for install, start, status, stop, and uninstall. Do not use GitHub's auto-generated source-code zip as the normal user install path.
+Current MVP installer note: download the latest `NxJob-<version>.zip` release package, unzip it, and use the root `.bat` files for install, start, status, stop, and uninstall. Do not use GitHub's auto-generated source-code zip as the normal user install path.
 
 The Windows local-service package requires Python 3.11+ on the user's machine.
 
@@ -31,6 +31,13 @@ The MVP focuses on three browser actions plus a lightweight tracking loop:
 NxJob does not automatically submit applications, bypass verification, bulk scrape job sites, or perform no-confirmation mass applying.
 
 Tailor Resume uses a private Master Resume, a configured resume output folder, and the local service to generate DOCX and Markdown resume artifacts. Generated resumes and private configuration stay local.
+
+## Known MVP Limits
+
+- Fill Form Answer drafts and fills detected fields, but the user must review every answer and submit manually.
+- JD capture still works best when the user selects the job description text before capture.
+- Tailor Resume output is usable for MVP testing, but layout and model-specific quality can still improve.
+- Windows is the primary tested platform. Core business logic is kept platform-neutral for future macOS support.
 
 ## License and Privacy
 
@@ -61,11 +68,11 @@ npm run extension:build
 Build MVP release artifacts:
 
 ```powershell
-.\scripts\package\build-release.ps1 -Version 0.5.0
+.\scripts\package\build-release.ps1 -Version 0.5.1
 ```
 
 Validate existing release artifacts:
 
 ```powershell
-.\scripts\package\validate-release.ps1 -Version 0.5.0
+.\scripts\package\validate-release.ps1 -Version 0.5.1
 ```

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,7 +30,7 @@ def draft_form_answer(
     ai_config: AiProviderConfig | None = None,
 ) -> FormAnswerDraft:
     field_text = _field_text(field_context)
-    fixed_answer = _fixed_answer(field_text, master_resume.fixed_answers)
+    fixed_answer = _fixed_answer(field_context, master_resume.fixed_answers)
     if fixed_answer is not None:
         return FormAnswerDraft(
             answer=fixed_answer,
@@ -58,7 +59,7 @@ def draft_form_answer(
             )
 
     answer = _draft_open_answer(field_text, selected)
-    risk_flags = ["User review required before filling or submitting."]
+    risk_flags = ["Manual review required before filling or submitting."]
     if not selected:
         risk_flags.append("No matching resume bullet was found.")
     if _is_choice_field(field_context):
@@ -178,23 +179,95 @@ def _ai_messages(
     ]
 
 
-def _fixed_answer(field_text: str, fixed_answers: dict[str, str]) -> str | None:
-    for key, value in fixed_answers.items():
-        normalized = key.strip().lower()
-        if normalized and normalized in field_text:
+def _fixed_answer(field_context: FieldContext, fixed_answers: dict[str, str]) -> str | None:
+    field_text = _field_text(field_context)
+    for answer_key, patterns in _simple_fixed_answer_patterns().items():
+        value = _lookup_fixed_answer(fixed_answers, answer_key)
+        if value and any(pattern in field_text for pattern in patterns):
             return value
 
-    common_keys = {
+    sponsorship_fact = _lookup_fixed_answer(fixed_answers, "sponsorship") or _lookup_fixed_answer(
+        fixed_answers,
+        "work authorization",
+    )
+    if sponsorship_fact and _asks_sponsorship(field_text):
+        if _is_choice_field(field_context):
+            return _choice_from_sponsorship_fact(sponsorship_fact, field_context.options)
+        return sponsorship_fact
+
+    authorization_fact = _lookup_fixed_answer(fixed_answers, "authorized to work") or _lookup_fixed_answer(
+        fixed_answers,
+        "work authorized",
+    )
+    if authorization_fact and _asks_work_authorization(field_text):
+        if _is_choice_field(field_context):
+            return _choice_from_authorization_fact(authorization_fact, field_context.options)
+        return authorization_fact
+
+    return None
+
+
+def _simple_fixed_answer_patterns() -> dict[str, list[str]]:
+    return {
         "email": ["email", "e-mail"],
         "phone": ["phone", "mobile", "telephone"],
-        "current location": ["location", "city", "address"],
-        "work authorization": ["work authorization", "authorized to work"],
-        "sponsorship": ["sponsorship", "visa"],
+        "current location": ["current location", "location", "city", "address"],
+        "linkedin": ["linkedin"],
+        "portfolio": ["portfolio", "website"],
     }
-    for answer_key, patterns in common_keys.items():
-        if answer_key in fixed_answers and any(pattern in field_text for pattern in patterns):
-            return fixed_answers[answer_key]
+
+
+def _lookup_fixed_answer(fixed_answers: dict[str, str], key: str) -> str:
+    for raw_key, value in fixed_answers.items():
+        if raw_key.strip().lower() == key and value.strip():
+            return value
+    return ""
+
+
+def _asks_sponsorship(field_text: str) -> bool:
+    return any(term in field_text for term in ["sponsorship", "visa sponsor", "visa sponsorship", "h-1b", "h1b"])
+
+
+def _asks_work_authorization(field_text: str) -> bool:
+    return any(term in field_text for term in ["authorized to work", "work authorization", "legally authorized"])
+
+
+def _choice_from_sponsorship_fact(fact: str, options: list[str]) -> str | None:
+    lower_fact = fact.lower()
+    if (
+        any(
+            term in lower_fact
+            for term in [
+                "do not require",
+                "does not require",
+                "will not require",
+                "not require",
+                "do not need",
+                "does not need",
+                "will not need",
+                "not need",
+                "no sponsorship",
+            ]
+        )
+        or _has_word(lower_fact, "no")
+    ):
+        return _match_option("No", options)
+    if any(term in lower_fact for term in ["require", "requires", "need", "needs", "yes"]):
+        return _match_option("Yes", options)
     return None
+
+
+def _choice_from_authorization_fact(fact: str, options: list[str]) -> str | None:
+    lower_fact = fact.lower()
+    if any(term in lower_fact for term in ["not authorized", "not legally authorized"]):
+        return _match_option("No", options)
+    if any(term in lower_fact for term in ["authorized", "legally authorized", "yes"]):
+        return _match_option("Yes", options)
+    return None
+
+
+def _has_word(text: str, word: str) -> bool:
+    return re.search(rf"\b{re.escape(word)}\b", text) is not None
 
 
 def _select_bullets(
