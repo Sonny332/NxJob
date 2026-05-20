@@ -67,9 +67,13 @@ class JobLeadCapture(BaseModel):
     source_url: AnyUrl
     source_site: SourceSite = "other"
     page_title: str = ""
+    company_name: str = ""
+    job_title: str = ""
+    location: str = ""
     selected_text: str = ""
     page_text_excerpt: str = ""
     platform_insights: dict[str, Any] = Field(default_factory=dict)
+    capture_metadata: dict[str, Any] = Field(default_factory=dict)
     search_query: str = ""
     user_notes: str = ""
 
@@ -425,6 +429,7 @@ class ResumeOutputDirectoryUpdate(BaseModel):
 class FieldContext(BaseModel):
     field_id: str = ""
     label: str = ""
+    question_text: str = ""
     placeholder: str = ""
     surrounding_text: str = ""
     current_value: str = ""
@@ -450,6 +455,12 @@ class FormAnswerDraftRecord(BaseModel):
     created_at: str
     field_id: str = ""
     field_label: str
+    question_text: str = ""
+    intent: str = "custom"
+    answer_type: str = "text"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    selected_option: str = ""
+    evidence_summary: list[str] = Field(default_factory=list)
     answer: str
     referenced_bullets: list[str] = Field(default_factory=list)
     risk_flags: list[str] = Field(default_factory=list)

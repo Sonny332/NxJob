@@ -261,6 +261,12 @@ export type FormAnswerDraftResponse = {
     id: string;
     field_id: string;
     field_label: string;
+    question_text: string;
+    intent: string;
+    answer_type: string;
+    confidence: number;
+    selected_option: string;
+    evidence_summary: string[];
     answer: string;
     referenced_bullets: string[];
     risk_flags: string[];
@@ -296,9 +302,16 @@ export async function captureJobLead(context: PageContext): Promise<CaptureJobLe
       source_url: context.url,
       source_site: inferSourceSite(context.url),
       page_title: context.title,
+      job_title: context.jobTitle ?? "",
+      company_name: context.companyName ?? "",
+      location: context.location ?? "",
       selected_text: context.selectedText,
       page_text_excerpt: context.pageTextExcerpt,
       platform_insights: {},
+      capture_metadata: {
+        source: context.metadataSource ?? "",
+        confidence: context.metadataConfidence ?? 0
+      },
       search_query: "",
       user_notes: ""
     })
@@ -673,6 +686,7 @@ export async function draftFormAnswer(
       field_context: {
         field_id: fieldContext.fieldId,
         label: fieldContext.label,
+        question_text: fieldContext.questionText ?? "",
         placeholder: fieldContext.placeholder,
         surrounding_text: fieldContext.surroundingText,
         current_value: fieldContext.currentValue,
@@ -708,6 +722,7 @@ export async function draftFormAnswers(
       fields: fields.map((field) => ({
         field_id: field.fieldId,
         label: field.label,
+        question_text: field.questionText ?? "",
         placeholder: field.placeholder,
         surrounding_text: field.surroundingText,
         current_value: field.currentValue,

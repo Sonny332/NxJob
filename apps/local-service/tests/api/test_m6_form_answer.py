@@ -142,7 +142,11 @@ def test_draft_answer_uses_ai_for_field_specific_open_question(tmp_path, monkeyp
         captured_messages.extend(messages)
         return SimpleNamespace(
             data={
+                "question_text": "Why are you a good fit for this role?",
+                "intent": "why_fit",
+                "answer_type": "text",
                 "answer": "I am a strong fit because I have built FastAPI workflow automation APIs for internal users.",
+                "confidence": 0.86,
                 "referenced_bullets": ["bullet_api"],
                 "risk_flags": ["Review before filling."],
             },
@@ -168,6 +172,9 @@ def test_draft_answer_uses_ai_for_field_specific_open_question(tmp_path, monkeyp
     body = response.json()
     assert response.status_code == 200
     assert body["ai_used"] is True
+    assert body["draft"]["question_text"] == "Why are you a good fit for this role?"
+    assert body["draft"]["intent"] == "why_fit"
+    assert body["draft"]["confidence"] == 0.86
     assert "strong fit" in body["draft"]["answer"]
     assert body["draft"]["referenced_bullets"] == ["bullet_api"]
     assert "test-key" not in json.dumps(captured_messages)
@@ -191,8 +198,12 @@ def test_draft_answer_choice_field_requires_matching_option(tmp_path, monkeypatc
     def fake_request_json_object(_config, _messages, timeout_seconds=60):
         return SimpleNamespace(
             data={
+                "question_text": "Preferred work arrangement",
+                "intent": "location",
+                "answer_type": "single_choice",
                 "answer": "I prefer the hybrid option because it matches my location.",
                 "option": "Hybrid",
+                "confidence": 0.8,
                 "referenced_bullets": [],
                 "risk_flags": [],
             },
@@ -219,6 +230,34 @@ def test_draft_answer_choice_field_requires_matching_option(tmp_path, monkeypatc
     assert response.status_code == 200
     assert body["ai_used"] is True
     assert body["draft"]["answer"] == "Hybrid"
+    assert body["draft"]["selected_option"] == "Hybrid"
+    assert body["draft"]["answer_type"] == "single_choice"
+
+
+def test_draft_answer_salary_question_returns_review_warning_without_inventing(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "What are your salary expectations?",
+                    "surrounding_text": "Compensation question",
+                    "input_type": "text",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["draft"]["intent"] == "salary"
+    assert "discuss" in body["draft"]["answer"].lower()
+    assert any("salary" in flag.lower() for flag in body["draft"]["risk_flags"])
 
 
 def test_work_authorization_question_does_not_reuse_sponsorship_fact_as_answer(tmp_path, monkeypatch) -> None:

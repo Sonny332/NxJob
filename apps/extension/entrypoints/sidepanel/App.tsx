@@ -835,8 +835,8 @@ export function App() {
               className={job.id === focusedJob?.id ? "job-card job-card-active" : "job-card"}
               onClick={() => setWorkspace((current) => ({ ...current, focusedJobId: job.id }))}
             >
-              <span>{job.jobLead.page_title || job.jobLead.job_title || "Untitled job"}</span>
-              <small>{job.jobLead.source_site} · {job.selectedTextLength} selected chars</small>
+              <span>{jobDisplayTitle(job.jobLead)}</span>
+              <small>{jobDisplaySubtitle(job.jobLead)} · {job.selectedTextLength} selected chars</small>
               <small>{job.visibility === "hidden" ? "hidden" : job.tabPresence === "closed" ? "tab closed" : "active"}</small>
               <small>{jobSummary(job)}</small>
             </button>
@@ -905,7 +905,8 @@ function JobDetail(props: {
     <article className="detail-card">
       <header className="detail-header">
         <div>
-          <h2>{job.jobLead.page_title || job.jobLead.job_title || "Captured job"}</h2>
+          <h2>{jobDisplayTitle(job.jobLead)}</h2>
+          <small>{jobDisplaySubtitle(job.jobLead)}</small>
           <p>{job.jobLead.source_url}</p>
         </div>
         <span className="id-pill">{job.jobLead.id}</span>
@@ -990,8 +991,13 @@ function FormAnswerResult(props: {
           const fieldId = draft.field_id;
           return (
             <article key={draft.id} className="draft-card">
-              <span>{draft.field_label || "Detected field"}</span>
+              <span>{draft.question_text || draft.field_label || "Detected field"}</span>
+              <small>
+                {draft.intent || "custom"} · {draft.answer_type || "text"} · {Math.round((draft.confidence ?? 0) * 100)}%
+              </small>
               <p>{draft.answer}</p>
+              {draft.selected_option ? <small>Selected option: {draft.selected_option}</small> : null}
+              {draft.evidence_summary.length > 0 ? <small>Evidence: {draft.evidence_summary.join(" ")}</small> : null}
               {draft.risk_flags.length > 0 ? <small>{draft.risk_flags.join(" ")}</small> : null}
               <button
                 type="button"
@@ -1013,7 +1019,15 @@ function FormAnswerResult(props: {
   return (
     <section className="result-block">
       <strong>Answer Draft</strong>
+      <small>
+        {singleResult.draft.question_text || singleResult.draft.field_label || "Detected field"} ·{" "}
+        {singleResult.draft.intent || "custom"} · {Math.round((singleResult.draft.confidence ?? 0) * 100)}%
+      </small>
       <p>{singleResult.draft.answer}</p>
+      {singleResult.draft.selected_option ? <small>Selected option: {singleResult.draft.selected_option}</small> : null}
+      {singleResult.draft.evidence_summary.length > 0 ? (
+        <small>Evidence: {singleResult.draft.evidence_summary.join(" ")}</small>
+      ) : null}
       <small>{singleResult.ai_used ? "AI draft" : "Fixed profile answer"} · Requires review</small>
       <button type="button" className="secondary-button" onClick={() => props.onFillAnswer(singleResult.draft.answer)}>
         Fill Current Field
@@ -1278,6 +1292,19 @@ function jobSummary(job: JobWorkspaceRecord): string {
   const sponsorshipText = sponsorship ? sponsorshipLabel(sponsorship.sponsorship.status) : "No sponsorship result";
   const resumeText = resume ? "Resume ready" : "No resume";
   return `${sponsorshipText} · ${resumeText}`;
+}
+
+function jobDisplayTitle(jobLead: JobLeadRecord): string {
+  if (jobLead.job_title && jobLead.company_name) {
+    return `${jobLead.job_title} | ${jobLead.company_name}`;
+  }
+  return jobLead.job_title || jobLead.page_title || "Untitled job";
+}
+
+function jobDisplaySubtitle(jobLead: JobLeadRecord): string {
+  const parts: string[] = [jobLead.source_site];
+  if (jobLead.location) parts.push(jobLead.location);
+  return parts.join(" · ");
 }
 
 function visibleJobs(workspace: WorkspaceState): JobWorkspaceRecord[] {
