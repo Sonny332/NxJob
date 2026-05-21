@@ -139,11 +139,8 @@ function findLabel(element: SupportedFormElement): string {
   if (wrappingLabel?.textContent?.trim()) return wrappingLabel.textContent.trim();
   const ariaLabel = element.getAttribute("aria-label");
   if (ariaLabel) return ariaLabel;
-  const labelledBy = element.getAttribute("aria-labelledby");
-  if (labelledBy) {
-    const label = document.getElementById(labelledBy);
-    if (label?.textContent?.trim()) return label.textContent.trim();
-  }
+  const labelled = textFromIdRefs(element.getAttribute("aria-labelledby"));
+  if (labelled) return labelled;
   return "";
 }
 
@@ -152,7 +149,9 @@ function findQuestionText(element: SupportedFormElement): string {
   const legend = element.closest("fieldset")?.querySelector("legend")?.textContent?.trim() ?? "";
   const heading = closestHeadingText(element);
   const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
-  return firstUsefulText([legend, labelled, heading, placeholder, surroundingText(element)]);
+  const describedBy = textFromIdRefs(element.getAttribute("aria-describedby"));
+  const localText = localFieldText(element);
+  return firstUsefulText([legend, labelled, heading, describedBy, placeholder, localText]);
 }
 
 function closestHeadingText(element: Element): string {
@@ -174,8 +173,57 @@ function firstUsefulText(values: string[]): string {
 }
 
 function surroundingText(element: Element): string {
-  const container = element.closest("section, fieldset, form, div") ?? element.parentElement;
-  return container?.textContent?.trim().slice(0, 1000) ?? "";
+  const container = nearestTextContainer(element);
+  return compactText(container?.textContent ?? "").slice(0, 400);
+}
+
+function localFieldText(element: Element): string {
+  const values = [
+    textFromIdRefs((element as HTMLElement).getAttribute("aria-describedby")),
+    compactText(element.parentElement?.textContent ?? ""),
+    compactText(nearestTextContainer(element)?.textContent ?? "")
+  ];
+  for (const value of values) {
+    if (value && value.length <= 220) return value;
+  }
+  return "";
+}
+
+function nearestTextContainer(element: Element): Element | null {
+  const selectors = [
+    "fieldset",
+    "[role='group']",
+    "[role='radiogroup']",
+    "[role='row']",
+    "li",
+    "td",
+    "tr",
+    "section",
+    "article",
+    "div"
+  ];
+  let current: Element | null = element.parentElement;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if (!current.matches("form, body")) {
+      const text = compactText(current.textContent ?? "");
+      if (text && text.length <= 400 && selectors.some((selector) => current?.matches(selector))) {
+        return current;
+      }
+    }
+    current = current.parentElement;
+  }
+  return element.parentElement;
+}
+
+function textFromIdRefs(value: string | null): string {
+  if (!value) return "";
+  const parts = value
+    .split(/\s+/)
+    .map((id) => document.getElementById(id))
+    .filter((node): node is HTMLElement => Boolean(node))
+    .map((node) => compactText(node.textContent ?? ""))
+    .filter(Boolean);
+  return parts.join(" ").slice(0, 300);
 }
 
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {

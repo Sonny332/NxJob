@@ -84,6 +84,15 @@ const OUTCOME_LABELS: Record<SidePanelOutcomeType, string> = {
   rejection: "Rejection"
 };
 
+function isSensitiveField(field: { sensitiveKind?: string }): boolean {
+  return Boolean(field.sensitiveKind?.trim());
+}
+
+function sensitiveFieldMessage(kind?: string): string {
+  const label = kind?.trim() || "sensitive";
+  return `NxJob will not draft or fill ${label} fields. Complete this field manually.`;
+}
+
 const APPLICATION_STATUS_BY_OUTCOME: Record<SidePanelOutcomeType, ApplicationRecord["status"]> = {
   positive_reply: "replied",
   screen: "interviewing",
@@ -358,9 +367,15 @@ export function App() {
     markWorkflow(job.id, "formAnswer", "running");
     try {
       const formContext = await scanActiveTabFormFields();
-      const fields = formContext.fields.filter((field) => !["ssn", "password", "eeoc"].includes(field.sensitiveKind ?? ""));
+      const fields = formContext.fields.filter((field) => !isSensitiveField(field));
       if (fields.length === 0) {
         const fieldContext = await captureActiveFieldContext();
+        if (isSensitiveField(fieldContext)) {
+          const error = new Error(sensitiveFieldMessage(fieldContext.sensitiveKind));
+          setWorkflowError(job.id, "formAnswer", error);
+          setMessage(error.message);
+          return;
+        }
         const result = await draftFormAnswer(job.jobLead, fieldContext);
         setWorkflowResult(job.id, "formAnswer", result);
         setMessage("Answer draft generated for the focused field. Review before filling.");
