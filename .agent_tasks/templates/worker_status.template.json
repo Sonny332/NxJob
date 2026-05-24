@@ -1,0 +1,33 @@
+{
+  "packet_id": "TASK-000",
+  "worker_role": "Implementer / Coding Agent",
+  "worker_model": "provider-alias:model-id",
+  "reasoning_effort": "medium",
+  "state": "completed",
+  "final_state": "completed",
+  "phase": "completed",
+  "failure_class": "none",
+  "blocker_kind": null,
+  "last_progress_signal": "status",
+  "last_stream_event_at": null,
+  "last_diff_at": null,
+  "last_test_output_at": null,
+  "allowed_scope": {
+    "paths": [],
+    "checks": []
+  },
+  "summary": [
+    "Short outcome bullet 1.",
+    "Short outcome bullet 2."
+  ],
+  "changed_files": [],
+  "verification": [],
+  "blockers": [],
+  "next_recommended_action": "Controller review handoff artifacts and assign the next packet.",
+  "artifacts": {
+    "heartbeat": ".agent_tasks/status/TASK-000-heartbeat.json",
+    "implementation_report": ".agent_tasks/status/TASK-000-implementation-report.md",
+    "failure_report": ".agent_tasks/status/TASK-000-failure-report.md",
+    "human_observation": ".agent_tasks/status/TASK-000-human-observation.md"
+  }
+}

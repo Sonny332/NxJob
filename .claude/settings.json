@@ -1,0 +1,7 @@
+{
+  "env": {
+    "NXJOB_WORKER_MODE": "task-packet-only",
+    "NXJOB_OBSERVABILITY_MODE": "off-token-first",
+    "NXJOB_HANDOFF_MODE": "goal-compatible"
+  }
+}
