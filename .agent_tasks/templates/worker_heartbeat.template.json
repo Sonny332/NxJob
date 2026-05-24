@@ -1,0 +1,28 @@
+{
+  "packet_id": "TASK-000",
+  "worker_role": "Implementer / Coding Agent",
+  "worker_model": "provider-alias:model-id",
+  "reasoning_effort": "medium",
+  "state": "busy",
+  "phase": "running",
+  "failure_class": null,
+  "blocker_kind": null,
+  "updated_at": "2026-05-23T00:00:00Z",
+  "last_stream_event_at": null,
+  "last_diff_at": null,
+  "last_test_output_at": null,
+  "last_progress_signal": null,
+  "signal_summary": {
+    "stdout_fresh": false,
+    "diff_fresh": false,
+    "test_output_fresh": false,
+    "child_process_active": false
+  },
+  "allowed_scope": {
+    "paths": [],
+    "checks": []
+  },
+  "current_step": "Describe the current bounded step.",
+  "changed_files": [],
+  "next_expected_signal": "Final status artifact or another heartbeat within bounded time."
+}

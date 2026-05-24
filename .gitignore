@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-tmp/
+.pytest-*/
+.tmp-pytest*/
+.tmp_pytest*/
 .mypy_cache/
 .ruff_cache/
 .venv/
@@ -26,6 +29,26 @@ data/local/
 private/
 installers/
 releases/
+.deepseek/
+pytest_precreated_root/
+pytest_run_temp/
+pytest_tmp_parent/
+scratch_pytest_temp/
+sqlite_probe/
+.tmp-video-frames/
+zzz_pytest*/
+apps/local-service/.codex-tmp/
+apps/local-service/.pytest_*/
+apps/local-service/.tmp_pytest*/
+apps/local-service/manual_test_workspace/
+
+# DeepSeek worker runtime artifacts
+.agent_tasks/*
+!.agent_tasks/README.md
+!.agent_tasks/templates/
+.agent_tasks/templates/*
+!.agent_tasks/templates/*.json
+!.agent_tasks/templates/*.md
 
 # OS/editor
 .DS_Store
