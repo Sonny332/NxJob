@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import sqlite3
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+import pytest
 
 from nxjob.main import create_app
+from nxjob.schemas.core import FieldContext, JobLeadRecord, MasterResumeBullet, MasterResumeExperience, MasterResumeProfile
 from nxjob.settings.private_config import AiProviderConfig
+from nxjob.workflows.form_answer_drafter import draft_form_answer
 
 
 def test_draft_answer_uses_fixed_profile_answer_without_ai(tmp_path, monkeypatch) -> None:
@@ -67,7 +71,7 @@ def test_draft_answer_uses_resume_bullets_for_open_question(tmp_path, monkeypatc
 
     body = response.json()
     assert response.status_code == 200
-    assert body["ai_used"] is True
+    assert body["ai_used"] is False
     assert "FastAPI" in body["draft"]["answer"]
     assert body["draft"]["referenced_bullets"] == ["bullet_api"]
     assert body["draft"]["risk_flags"]
@@ -104,7 +108,7 @@ def test_draft_answers_handles_multiple_fields_without_private_prompt_payloads(t
 
     body = response.json()
     assert response.status_code == 200
-    assert body["ai_used"] is True
+    assert body["ai_used"] is False
     assert len(body["drafts"]) == 2
     assert body["drafts"][0]["answer"] == "candidate@example.com"
     assert "FastAPI" in body["drafts"][1]["answer"]
@@ -256,8 +260,540 @@ def test_draft_answer_salary_question_returns_review_warning_without_inventing(t
     body = response.json()
     assert response.status_code == 200
     assert body["draft"]["intent"] == "salary"
-    assert "discuss" in body["draft"]["answer"].lower()
+    assert body["draft"]["answer"] == ""
     assert any("salary" in flag.lower() for flag in body["draft"]["risk_flags"])
+
+
+@pytest.mark.parametrize("sensitive_kind", ["ssn", "password", "eeoc"])
+def test_sensitive_field_draft_answer_returns_blank_without_ai_or_resume_evidence(tmp_path, monkeypatch, sensitive_kind: str) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+    monkeypatch.setattr(
+        "nxjob.api.forms.read_ai_provider_config",
+        lambda: AiProviderConfig(
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            model="test-model",
+            api_key="test-key",
+        ),
+    )
+
+    ai_call_count = 0
+
+    def fail_if_ai_called(_config, _messages, timeout_seconds=60):
+        nonlocal ai_call_count
+        ai_call_count += 1
+        raise AssertionError("AI should not be called for sensitive fields")
+
+    monkeypatch.setattr("nxjob.workflows.form_answer_drafter.request_json_object", fail_if_ai_called)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "field_id": f"{sensitive_kind}_field",
+                    "label": f"{sensitive_kind.upper()} field",
+                    "question_text": "Provide the requested sensitive information.",
+                    "input_type": "text",
+                    "sensitive_kind": sensitive_kind,
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert ai_call_count == 0
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] == ""
+    assert body["draft"]["referenced_bullets"] == []
+    assert body["draft"]["selected_option"] == ""
+    assert any("sensitive" in flag.lower() for flag in body["draft"]["risk_flags"])
+    assert sensitive_kind not in body["draft"]["answer"].lower()
+
+
+def test_sensitive_batch_fields_return_safe_blank_drafts_without_ai(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+    monkeypatch.setattr(
+        "nxjob.api.forms.read_ai_provider_config",
+        lambda: AiProviderConfig(
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            model="test-model",
+            api_key="test-key",
+        ),
+    )
+
+    ai_call_count = 0
+
+    def fail_if_ai_called(_config, _messages, timeout_seconds=60):
+        nonlocal ai_call_count
+        ai_call_count += 1
+        raise AssertionError("AI should not be called for sensitive fields")
+
+    monkeypatch.setattr("nxjob.workflows.form_answer_drafter.request_json_object", fail_if_ai_called)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answers",
+            json={
+                "job_lead_id": job_id,
+                "fields": [
+                    {
+                        "field_id": "field_ssn",
+                        "label": "Social Security Number",
+                        "question_text": "Enter your SSN",
+                        "input_type": "text",
+                        "sensitive_kind": "ssn",
+                    },
+                    {
+                        "field_id": "field_password",
+                        "label": "Account Password",
+                        "question_text": "Enter the password used for this site",
+                        "input_type": "password",
+                        "sensitive_kind": "password",
+                    },
+                    {
+                        "field_id": "field_eeoc",
+                        "label": "Voluntary Self Identification",
+                        "question_text": "Complete the EEOC questionnaire",
+                        "input_type": "select",
+                        "options": ["Decline", "Provide"],
+                        "sensitive_kind": "eeoc",
+                    },
+                ],
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert ai_call_count == 0
+    assert body["ai_used"] is False
+    assert [draft["answer"] for draft in body["drafts"]] == ["", "", ""]
+    assert all(draft["referenced_bullets"] == [] for draft in body["drafts"])
+    assert all(any("sensitive" in flag.lower() for flag in draft["risk_flags"]) for draft in body["drafts"])
+
+
+def test_direct_blank_ambiguous_fields_require_manual_review_without_autofill() -> None:
+    job_lead = _sample_job_lead_record()
+    master_resume = _sample_master_resume_profile(
+        {
+            "email": "candidate@example.com",
+            "phone": "555-000-0000",
+            "current location": "Boston, MA",
+            "current company": "Acme Robotics",
+            "current title": "Senior Automation Engineer",
+            "work authorization": "Requires employer sponsorship now or in the future.",
+        }
+    )
+
+    drafts = [
+        draft_form_answer(job_lead, FieldContext(label=label, current_value="", input_type="text"), master_resume, master_resume.bullets)
+        for label in [
+            "Preferred location",
+            "Location",
+            "Company",
+            "Employer",
+            "Company Name",
+            "Employer Name",
+            "Title",
+            "End Date",
+            "Employment End Date",
+        ]
+    ]
+
+    assert [draft.answer for draft in drafts] == ["", "", "", "", "", "", "", "", ""]
+    assert all("manual review" in " ".join(draft.risk_flags).lower() for draft in drafts)
+    assert all("My relevant experience includes" not in draft.answer for draft in drafts)
+    serialized = json.dumps([asdict(draft) for draft in drafts]).lower()
+    assert "boston, ma" not in serialized
+    assert "acme robotics" not in serialized
+    assert "senior automation engineer" not in serialized
+
+
+def test_direct_company_employer_and_title_keep_current_value_even_when_blank_autofill_is_blocked() -> None:
+    job_lead = _sample_job_lead_record()
+    master_resume = _sample_master_resume_profile()
+
+    company_drafts = [
+        draft_form_answer(
+            job_lead,
+            FieldContext(label=label, current_value="Acme Robotics", input_type="text"),
+            master_resume,
+            master_resume.bullets,
+        )
+        for label in ["Company", "Employer", "Company Name"]
+    ]
+    title_draft = draft_form_answer(
+        job_lead,
+        FieldContext(label="Title", current_value="Senior Automation Engineer", input_type="text"),
+        master_resume,
+        master_resume.bullets,
+    )
+
+    assert [draft.answer for draft in company_drafts] == ["Acme Robotics", "Acme Robotics", "Acme Robotics"]
+    assert all(draft.risk_flags == [] for draft in company_drafts)
+    assert title_draft.answer == "Senior Automation Engineer"
+    assert title_draft.risk_flags == []
+
+
+def test_draft_answers_preserve_current_values_for_simple_profile_and_employment_fields(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answers",
+            json={
+                "job_lead_id": job_id,
+                "fields": [
+                    {
+                        "field_id": "first_name",
+                        "label": "First Name",
+                        "surrounding_text": "Address Information City State Postal Code Country",
+                        "current_value": "Taylor",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "last_name",
+                        "label": "Last Name",
+                        "current_value": "Candidate",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "company_name",
+                        "label": "Company Name",
+                        "current_value": "Acme Robotics",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "job_title",
+                        "label": "Title",
+                        "current_value": "Senior Automation Engineer",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "start_date",
+                        "label": "Employment Start Date",
+                        "current_value": "2021-01-15",
+                        "input_type": "date",
+                    },
+                    {
+                        "field_id": "end_date",
+                        "label": "Employment End Date",
+                        "current_value": "Present",
+                        "input_type": "date",
+                    },
+                ],
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert [draft["answer"] for draft in body["drafts"]] == [
+        "Taylor",
+        "Candidate",
+        "Acme Robotics",
+        "Senior Automation Engineer",
+        "2021-01-15",
+        "Present",
+    ]
+    assert all(not draft["referenced_bullets"] for draft in body["drafts"])
+
+
+def test_blank_start_date_fields_do_not_autofill_current_experience_start_date(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answers",
+            json={
+                "job_lead_id": job_id,
+                "fields": [
+                    {
+                        "field_id": "start_date_label",
+                        "label": "Start Date",
+                        "current_value": "",
+                        "input_type": "date",
+                    },
+                    {
+                        "field_id": "availability_question",
+                        "label": "Availability",
+                        "question_text": "When can you start?",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                ],
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert [draft["answer"] for draft in body["drafts"]] == ["", ""]
+    assert all("manual review" in " ".join(draft["risk_flags"]).lower() for draft in body["drafts"])
+    assert all(
+        any(term in " ".join(draft["risk_flags"]).lower() for term in ("start-date", "availability"))
+        for draft in body["drafts"]
+    )
+
+
+def test_blank_ambiguous_profile_and_employment_fields_do_not_autofill_current_facts(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(
+        tmp_path,
+        fixed_answers={
+            "email": "candidate@example.com",
+            "phone": "555-000-0000",
+            "current location": "Boston, MA",
+            "current company": "Acme Robotics",
+            "current title": "Senior Automation Engineer",
+            "work authorization": "Requires employer sponsorship now or in the future.",
+        },
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+    monkeypatch.setattr(
+        "nxjob.api.forms.read_ai_provider_config",
+        lambda: AiProviderConfig(
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            model="test-model",
+            api_key="test-key",
+        ),
+    )
+
+    ai_call_count = 0
+
+    def fail_if_ai_called(_config, _messages, timeout_seconds=60):
+        nonlocal ai_call_count
+        ai_call_count += 1
+        raise AssertionError("AI should not be called for blank ambiguous profile or employment fields")
+
+    monkeypatch.setattr("nxjob.workflows.form_answer_drafter.request_json_object", fail_if_ai_called)
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answers",
+            json={
+                "job_lead_id": job_id,
+                "fields": [
+                    {
+                        "field_id": "preferred_location",
+                        "label": "Preferred location",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "location",
+                        "label": "Location",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "company",
+                        "label": "Company",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "employer",
+                        "label": "Employer",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "company_name",
+                        "label": "Company Name",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "employer_name",
+                        "label": "Employer Name",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "title",
+                        "label": "Title",
+                        "current_value": "",
+                        "input_type": "text",
+                    },
+                    {
+                        "field_id": "end_date",
+                        "label": "End Date",
+                        "current_value": "",
+                        "input_type": "date",
+                    },
+                    {
+                        "field_id": "employment_end_date",
+                        "label": "Employment End Date",
+                        "current_value": "",
+                        "input_type": "date",
+                    },
+                ],
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert ai_call_count == 0
+    assert body["ai_used"] is False
+    assert [draft["answer"] for draft in body["drafts"]] == ["", "", "", "", "", "", "", "", ""]
+    assert all("manual review" in " ".join(draft["risk_flags"]).lower() for draft in body["drafts"])
+    assert all("My relevant experience includes" not in draft["answer"] for draft in body["drafts"])
+    assert "boston, ma" not in json.dumps(body).lower()
+    assert "acme robotics" not in json.dumps(body).lower()
+    assert "senior automation engineer" not in json.dumps(body).lower()
+
+
+def test_open_question_with_state_word_does_not_backfill_state_field(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Please state why you are interested",
+                    "input_type": "textarea",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] != "Massachusetts"
+
+
+def test_open_question_with_address_verb_does_not_backfill_street_address(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "How would you address a difficult customer issue?",
+                    "input_type": "textarea",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] != "123 Main Street"
+
+
+def test_open_question_with_employer_phrase_does_not_backfill_current_company(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Previous employer details",
+                    "input_type": "textarea",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] != "Acme Robotics"
+
+
+def test_work_authorization_choice_field_uses_work_authorization_fixed_key(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(
+        tmp_path,
+        fixed_answers={
+            "email": "candidate@example.com",
+            "phone": "555-000-0000",
+            "work authorization": "Legally authorized to work in the United States.",
+        },
+    )
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "Are you legally authorized to work in the United States?",
+                    "input_type": "radio",
+                    "options": ["Yes", "No"],
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] == "Yes"
+
+
+def test_simple_field_noise_does_not_turn_first_name_into_resume_summary(tmp_path, monkeypatch) -> None:
+    master_path = _write_master_resume(tmp_path)
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setenv("NXJOB_MASTER_RESUME_PATH", str(master_path))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client)
+        response = client.post(
+            "/api/v1/forms/draft-answer",
+            json={
+                "job_lead_id": job_id,
+                "field_context": {
+                    "label": "First Name",
+                    "question_text": "First Name",
+                    "placeholder": "Enter first name",
+                    "surrounding_text": (
+                        "Current Address Current Location City State Postal Code Country "
+                        "Employment History Company Name Title"
+                    ),
+                    "current_value": "Taylor",
+                    "input_type": "text",
+                },
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["ai_used"] is False
+    assert body["draft"]["answer"] == "Taylor"
+    assert "My relevant experience includes" not in body["draft"]["answer"]
 
 
 def test_work_authorization_question_does_not_reuse_sponsorship_fact_as_answer(tmp_path, monkeypatch) -> None:
@@ -375,6 +911,66 @@ def _capture_job(client: TestClient) -> str:
     return response.json()["job_lead"]["id"]
 
 
+def _sample_job_lead_record() -> JobLeadRecord:
+    return JobLeadRecord(
+        id="job_test",
+        source_url="https://example.com/jobs/form-answer",
+        source_site="company_ats",
+        page_title="Automation Platform Engineer",
+        company_name="Example Co",
+        job_title="Automation Platform Engineer",
+        location="Remote",
+        captured_at="2026-05-21T00:00:00Z",
+        jd_text="Automation platform role using Python, FastAPI, and workflow APIs.",
+        jd_hash="hash_test",
+        platform_insights={},
+        search_query="",
+        status="new",
+        user_notes="",
+    )
+
+
+def _sample_master_resume_profile(fixed_answers: dict[str, str] | None = None) -> MasterResumeProfile:
+    return MasterResumeProfile(
+        id="master_test",
+        candidate_name="Test Candidate",
+        contact_line="candidate@example.com",
+        bullets=[
+            MasterResumeBullet(
+                id="bullet_api",
+                text="Built Python FastAPI workflow automation APIs for internal users.",
+                tags=["Python", "FastAPI", "automation"],
+            )
+        ],
+        experience=[
+            MasterResumeExperience(
+                company="Acme Robotics",
+                location="Boston, MA",
+                title="Senior Automation Engineer",
+                start_date="2021-01-15",
+                end_date="Present",
+                bullets=[],
+            )
+        ],
+        fixed_answers=fixed_answers
+        or {
+            "email": "candidate@example.com",
+            "phone": "555-000-0000",
+            "first name": "Taylor",
+            "last name": "Candidate",
+            "full name": "Taylor Candidate",
+            "address": "123 Main Street",
+            "city": "Boston",
+            "state": "Massachusetts",
+            "postal code": "02110",
+            "country": "United States",
+            "current company": "Acme Robotics",
+            "current title": "Senior Automation Engineer",
+            "work authorization": "Requires employer sponsorship now or in the future.",
+        },
+    )
+
+
 def _write_master_resume(tmp_path, fixed_answers: dict[str, str] | None = None) -> str:
     path = tmp_path / "master_resume.json"
     path.write_text(
@@ -390,10 +986,30 @@ def _write_master_resume(tmp_path, fixed_answers: dict[str, str] | None = None) 
                         "tags": ["Python", "FastAPI", "automation"],
                     }
                 ],
+                "experience": [
+                    {
+                        "company": "Acme Robotics",
+                        "location": "Boston, MA",
+                        "title": "Senior Automation Engineer",
+                        "start_date": "2021-01-15",
+                        "end_date": "Present",
+                        "bullets": [],
+                    }
+                ],
                 "fixed_answers": fixed_answers
                 or {
                     "email": "candidate@example.com",
                     "phone": "555-000-0000",
+                    "first name": "Taylor",
+                    "last name": "Candidate",
+                    "full name": "Taylor Candidate",
+                    "address": "123 Main Street",
+                    "city": "Boston",
+                    "state": "Massachusetts",
+                    "postal code": "02110",
+                    "country": "United States",
+                    "current company": "Acme Robotics",
+                    "current title": "Senior Automation Engineer",
                     "work authorization": "Requires employer sponsorship now or in the future.",
                 },
             }

@@ -39,7 +39,40 @@ def draft_form_answer(
     question_text = _question_text(field_context)
     intent = _classify_intent(field_context)
     answer_type = _answer_type(field_context)
-    fixed_answer = _fixed_answer(field_context, master_resume.fixed_answers)
+    sensitive_guard = _sensitive_field_guard(field_context, field_text=field_text, question_text=question_text, intent=intent, answer_type=answer_type)
+    if sensitive_guard is not None:
+        return sensitive_guard
+    simple_answer = _simple_field_answer(field_context, master_resume)
+    if simple_answer is not None:
+        return FormAnswerDraft(
+            answer=simple_answer,
+            referenced_bullets=[],
+            risk_flags=[],
+            ai_used=False,
+            token_usage={"input_chars": len(field_text), "output_chars": len(simple_answer)},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.95,
+            selected_option=simple_answer if _is_choice_field(field_context) else "",
+        )
+    blank_ambiguous_warning = _blank_ambiguous_field_warning(field_context)
+    if blank_ambiguous_warning is not None:
+        warnings = [blank_ambiguous_warning]
+        if _is_choice_field(field_context):
+            warnings.append("Select the correct option manually.")
+        return FormAnswerDraft(
+            answer="",
+            referenced_bullets=[],
+            risk_flags=warnings,
+            ai_used=False,
+            token_usage={"input_chars": len(field_text), "output_chars": 0},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.2,
+        )
+    fixed_answer = _fixed_answer(field_context, master_resume)
     if fixed_answer is not None:
         return FormAnswerDraft(
             answer=fixed_answer,
@@ -57,17 +90,46 @@ def draft_form_answer(
     bullets = request_bullets or master_resume.bullets
     selected = _select_bullets(job_lead.jd_text, field_text, bullets)
     if intent == "salary":
-        answer = "I am open to discussing compensation based on the role scope, total package, and market range."
         return FormAnswerDraft(
-            answer=answer,
+            answer="",
             referenced_bullets=[],
             risk_flags=["Salary answer requires manual review before filling."],
             ai_used=False,
-            token_usage={"input_chars": len(field_text), "output_chars": len(answer)},
+            token_usage={"input_chars": len(field_text), "output_chars": 0},
             question_text=question_text,
             intent=intent,
             answer_type=answer_type,
-            confidence=0.7,
+            confidence=0.2,
+        )
+    if intent == "availability":
+        warnings = ["Availability or start-date answer requires manual review before filling."]
+        if _is_choice_field(field_context):
+            warnings.append("Select the correct option manually.")
+        return FormAnswerDraft(
+            answer="",
+            referenced_bullets=[],
+            risk_flags=warnings,
+            ai_used=False,
+            token_usage={"input_chars": len(field_text), "output_chars": 0},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.2,
+        )
+    if _should_require_manual_review(field_context):
+        warnings = ["NxJob could not determine a safe deterministic answer for this field."]
+        if _is_choice_field(field_context):
+            warnings.append("Select the correct option manually.")
+        return FormAnswerDraft(
+            answer="",
+            referenced_bullets=[],
+            risk_flags=warnings,
+            ai_used=False,
+            token_usage={"input_chars": len(field_text), "output_chars": 0},
+            question_text=question_text,
+            intent=intent,
+            answer_type=answer_type,
+            confidence=0.2,
         )
     if ai_config is not None:
         try:
@@ -101,7 +163,7 @@ def draft_form_answer(
         answer=answer,
         referenced_bullets=[bullet.id for bullet in selected],
         risk_flags=risk_flags,
-        ai_used=True,
+        ai_used=False,
         token_usage={
             "input_chars": len(job_lead.jd_text) + len(field_text) + sum(len(bullet.text) for bullet in bullets),
             "output_chars": len(answer),
@@ -114,15 +176,53 @@ def draft_form_answer(
     )
 
 
+def _sensitive_field_guard(
+    field_context: FieldContext,
+    *,
+    field_text: str,
+    question_text: str,
+    intent: str,
+    answer_type: str,
+) -> FormAnswerDraft | None:
+    sensitive_kind = field_context.sensitive_kind.strip().lower()
+    if not sensitive_kind:
+        return None
+
+    risk_flags = [
+        f"Sensitive field detected ({sensitive_kind}). Complete this field manually; NxJob will not draft or fill it."
+    ]
+    if _is_choice_field(field_context):
+        risk_flags.append("Select the correct option manually.")
+
+    return FormAnswerDraft(
+        answer="",
+        referenced_bullets=[],
+        risk_flags=risk_flags,
+        ai_used=False,
+        token_usage={"input_chars": len(field_text), "output_chars": 0},
+        question_text=question_text,
+        intent=intent,
+        answer_type=answer_type,
+        confidence=0.0,
+        selected_option="",
+        evidence_summary=[],
+    )
+
+
 def _field_text(field_context: FieldContext) -> str:
+    return _field_text_parts(field_context, include_surrounding=True)
+
+
+def _field_text_parts(field_context: FieldContext, *, include_surrounding: bool) -> str:
     return " ".join(
         value.strip()
         for value in [
             field_context.label,
             field_context.question_text,
             field_context.placeholder,
-            field_context.surrounding_text,
+            *( [field_context.surrounding_text] if include_surrounding else [] ),
             field_context.input_type,
+            " ".join(field_context.options),
         ]
         if value.strip()
     ).lower()
@@ -239,29 +339,43 @@ def _ai_messages(
     ]
 
 
-def _fixed_answer(field_context: FieldContext, fixed_answers: dict[str, str]) -> str | None:
-    field_text = _field_text(field_context)
+def _fixed_answer(field_context: FieldContext, master_resume: MasterResumeProfile) -> str | None:
+    field_text = _field_text_parts(field_context, include_surrounding=False)
+
     for answer_key, patterns in _simple_fixed_answer_patterns().items():
-        value = _lookup_fixed_answer(fixed_answers, answer_key)
+        value = _lookup_fixed_answer(master_resume.fixed_answers, *patterns)
         if value and any(pattern in field_text for pattern in patterns):
             return value
 
-    sponsorship_fact = _lookup_fixed_answer(fixed_answers, "sponsorship") or _lookup_fixed_answer(
-        fixed_answers,
-        "work authorization",
+    sponsorship_fact = _lookup_fixed_answer(
+        master_resume.fixed_answers,
+        "sponsorship",
+        "visa sponsorship",
+        "require sponsorship",
     )
+    authorization_fact = _lookup_fixed_answer(
+        master_resume.fixed_answers,
+        "work authorization",
+        "authorized to work",
+        "work authorized",
+        "legal authorization",
+        "legally authorized",
+    )
+
     if sponsorship_fact and _asks_sponsorship(field_text):
         if _is_choice_field(field_context):
             return _choice_from_sponsorship_fact(sponsorship_fact, field_context.options)
         return sponsorship_fact
+    if not sponsorship_fact and authorization_fact and _asks_sponsorship(field_text) and _looks_like_sponsorship_fact(authorization_fact):
+        if _is_choice_field(field_context):
+            return _choice_from_sponsorship_fact(authorization_fact, field_context.options)
+        return authorization_fact
 
-    authorization_fact = _lookup_fixed_answer(fixed_answers, "authorized to work") or _lookup_fixed_answer(
-        fixed_answers,
-        "work authorized",
-    )
     if authorization_fact and _asks_work_authorization(field_text):
         if _is_choice_field(field_context):
             return _choice_from_authorization_fact(authorization_fact, field_context.options)
+        if _looks_like_sponsorship_fact(authorization_fact):
+            return None
         return authorization_fact
 
     return None
@@ -271,17 +385,22 @@ def _simple_fixed_answer_patterns() -> dict[str, list[str]]:
     return {
         "email": ["email", "e-mail"],
         "phone": ["phone", "mobile", "telephone"],
-        "current location": ["current location", "location", "city", "address"],
+        "current location": ["current location"],
         "linkedin": ["linkedin"],
         "portfolio": ["portfolio", "website"],
     }
 
 
-def _lookup_fixed_answer(fixed_answers: dict[str, str], key: str) -> str:
+def _lookup_fixed_answer(fixed_answers: dict[str, str], *keys: str) -> str:
+    normalized_keys = {_normalize_key(key) for key in keys}
     for raw_key, value in fixed_answers.items():
-        if raw_key.strip().lower() == key and value.strip():
+        if _normalize_key(raw_key) in normalized_keys and value.strip():
             return value
     return ""
+
+
+def _normalize_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
 def _asks_sponsorship(field_text: str) -> bool:
@@ -289,7 +408,16 @@ def _asks_sponsorship(field_text: str) -> bool:
 
 
 def _asks_work_authorization(field_text: str) -> bool:
-    return any(term in field_text for term in ["authorized to work", "work authorization", "legally authorized"])
+    return any(
+        term in field_text
+        for term in [
+            "authorized to work",
+            "work authorization",
+            "work authorized",
+            "legally authorized",
+            "legal authorization",
+        ]
+    )
 
 
 def _choice_from_sponsorship_fact(fact: str, options: list[str]) -> str | None:
@@ -324,6 +452,14 @@ def _choice_from_authorization_fact(fact: str, options: list[str]) -> str | None
     if any(term in lower_fact for term in ["authorized", "legally authorized", "yes"]):
         return _match_option("Yes", options)
     return None
+
+
+def _looks_like_sponsorship_fact(fact: str) -> bool:
+    lower_fact = fact.lower()
+    return any(
+        term in lower_fact
+        for term in ["sponsorship", "visa sponsor", "visa sponsorship", "require sponsorship", "need sponsorship"]
+    )
 
 
 def _has_word(text: str, word: str) -> bool:
@@ -396,7 +532,7 @@ def _question_text(field_context: FieldContext) -> str:
 
 
 def _classify_intent(field_context: FieldContext) -> str:
-    field_text = _field_text(field_context)
+    field_text = _field_text_parts(field_context, include_surrounding=False)
     if _asks_sponsorship(field_text):
         return "sponsorship"
     if _asks_work_authorization(field_text):
@@ -405,7 +541,7 @@ def _classify_intent(field_context: FieldContext) -> str:
         return "salary"
     if any(term in field_text for term in ["relocat", "commute", "location", "hybrid", "remote", "onsite", "on-site"]):
         return "relocation"
-    if any(term in field_text for term in ["available", "start date", "notice period"]):
+    if any(term in field_text for term in ["available", "availability", "start date", "can you start", "notice period"]):
         return "availability"
     if "why" in field_text and any(term in field_text for term in ["fit", "qualified", "good candidate", "best candidate"]):
         return "why_fit"
@@ -415,7 +551,23 @@ def _classify_intent(field_context: FieldContext) -> str:
         return "experience"
     if any(term in field_text for term in ["skill", "tool", "software", "proficient"]):
         return "skills"
-    if any(term in field_text for term in ["email", "phone", "linkedin", "portfolio", "address"]):
+    if any(
+        term in field_text
+        for term in [
+            "email",
+            "phone",
+            "linkedin",
+            "portfolio",
+            "address",
+            "first name",
+            "last name",
+            "full name",
+            "company name",
+            "job title",
+            "employment start",
+            "employment end",
+        ]
+    ):
         return "fixed_personal_fact"
     return "custom"
 
@@ -455,3 +607,203 @@ def _token_usage(value: dict[str, Any]) -> dict[str, int]:
         if isinstance(raw_value, int):
             usage[key] = raw_value
     return usage
+
+
+def _simple_field_answer(field_context: FieldContext, master_resume: MasterResumeProfile) -> str | None:
+    intent = _classify_intent(field_context)
+    if intent in {"sponsorship", "work_authorization", "salary", "relocation", "why_fit", "motivation", "experience", "skills"}:
+        return None
+
+    field_kind, allow_canonical_fill = _simple_field_kind(field_context)
+    if not field_kind:
+        return None
+
+    current_value = field_context.current_value.strip()
+    if current_value:
+        return current_value
+
+    if not allow_canonical_fill:
+        return None
+
+    value = _canonical_simple_value(field_kind, master_resume)
+    if not value:
+        return None
+    if _is_choice_field(field_context):
+        return _match_option(value, field_context.options)
+    return value
+
+
+def _simple_field_kind(field_context: FieldContext) -> tuple[str, bool]:
+    candidates = _simple_field_candidates(field_context)
+    checks: list[tuple[str, tuple[str, ...], bool]] = [
+        ("first_name", ("first name", "given name", "forename"), True),
+        ("last_name", ("last name", "family name", "surname"), True),
+        ("full_name", ("full name", "legal name", "name as shown"), True),
+        ("email", ("email", "e mail"), True),
+        ("phone", ("phone", "mobile", "telephone", "cell"), True),
+        ("address", ("address line", "street address", "mailing address", "home address", "address"), True),
+        ("city", ("city",), True),
+        ("state", ("state", "province", "region"), True),
+        ("postal_code", ("postal code", "zip code", "zip postal code", "postcode"), True),
+        ("country", ("country",), True),
+        ("linkedin", ("linkedin",), True),
+        ("portfolio", ("portfolio", "website", "personal site", "web site"), True),
+        ("current_company", ("current company", "company", "employer", "company name", "employer name"), False),
+        ("current_title", ("current title", "job title", "current position", "position title", "title"), False),
+        ("employment_start_date", ("employment start date", "start date", "from date"), False),
+        ("employment_end_date", ("employment end date", "end date", "to date"), False),
+    ]
+    for field_kind, patterns, allow_canonical_fill in checks:
+        if any(candidate in patterns for candidate in candidates):
+            return field_kind, allow_canonical_fill
+    return "", False
+
+
+def _blank_ambiguous_field_warning(field_context: FieldContext) -> str | None:
+    if field_context.current_value.strip():
+        return None
+
+    candidates = set(_simple_field_candidates(field_context))
+    if not candidates:
+        return None
+
+    if any(candidate in {"preferred location", "location"} for candidate in candidates):
+        return "Ambiguous location field requires manual review before filling."
+    if any(candidate in {"current company", "company", "employer", "company name", "employer name"} for candidate in candidates):
+        return "Ambiguous employer field requires manual review before filling."
+    if any(candidate in {"current title", "job title", "current position", "position title", "title"} for candidate in candidates):
+        return "Ambiguous title field requires manual review before filling."
+    if any(candidate in {"employment end date", "end date", "to date"} for candidate in candidates):
+        return "Employment end-date field requires manual review before filling."
+
+    return None
+
+
+def _simple_field_candidates(field_context: FieldContext) -> list[str]:
+    candidates: list[str] = []
+    for value in [field_context.label, field_context.question_text, field_context.placeholder]:
+        normalized = _normalized_field_label(value)
+        if not normalized or not _looks_like_short_field_label(normalized):
+            continue
+        if _looks_like_open_question(normalized):
+            continue
+        candidates.append(normalized)
+    return candidates
+
+
+def _normalized_field_label(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _looks_like_short_field_label(value: str) -> bool:
+    words = value.split()
+    return bool(words) and len(words) <= 4 and len(value) <= 32
+
+
+def _looks_like_open_question(value: str) -> bool:
+    if any(
+        value.startswith(prefix)
+        for prefix in (
+            "please ",
+            "how ",
+            "why ",
+            "what ",
+            "when ",
+            "where ",
+            "who ",
+            "tell ",
+            "describe ",
+            "explain ",
+            "share ",
+            "list ",
+            "provide ",
+        )
+    ):
+        return True
+    return any(term in value.split() for term in ("details", "detail", "interested", "interest"))
+
+
+def _canonical_simple_value(field_kind: str, master_resume: MasterResumeProfile) -> str:
+    fixed_answers = master_resume.fixed_answers
+    current_experience = _current_experience(master_resume)
+    if field_kind == "full_name":
+        return _lookup_fixed_answer(fixed_answers, "full name", "candidate name") or master_resume.candidate_name
+    if field_kind == "first_name":
+        return _lookup_fixed_answer(fixed_answers, "first name", "given name") or _candidate_name_part(
+            master_resume.candidate_name,
+            index=0,
+        )
+    if field_kind == "last_name":
+        return _lookup_fixed_answer(fixed_answers, "last name", "family name", "surname") or _candidate_name_part(
+            master_resume.candidate_name,
+            index=-1,
+        )
+    if field_kind == "email":
+        return _lookup_fixed_answer(fixed_answers, "email", "e-mail") or _extract_email(master_resume.contact_line)
+    if field_kind == "phone":
+        return _lookup_fixed_answer(fixed_answers, "phone", "mobile", "telephone") or _extract_phone(
+            master_resume.contact_line
+        )
+    if field_kind == "address":
+        return _lookup_fixed_answer(fixed_answers, "address", "street address", "address line 1")
+    if field_kind == "city":
+        return _lookup_fixed_answer(fixed_answers, "city")
+    if field_kind == "state":
+        return _lookup_fixed_answer(fixed_answers, "state", "province", "region")
+    if field_kind == "postal_code":
+        return _lookup_fixed_answer(fixed_answers, "postal code", "zip code", "postcode")
+    if field_kind == "country":
+        return _lookup_fixed_answer(fixed_answers, "country")
+    if field_kind == "linkedin":
+        return _lookup_fixed_answer(fixed_answers, "linkedin")
+    if field_kind == "portfolio":
+        return _lookup_fixed_answer(fixed_answers, "portfolio", "website", "personal site")
+    if field_kind == "current_company":
+        return _lookup_fixed_answer(fixed_answers, "current company", "company name", "employer") or current_experience.company
+    if field_kind == "current_title":
+        return _lookup_fixed_answer(fixed_answers, "current title", "job title", "position title") or current_experience.title
+    if field_kind == "employment_start_date":
+        return ""
+    if field_kind == "employment_end_date":
+        return ""
+    return ""
+
+
+def _current_experience(master_resume: MasterResumeProfile):
+    if not master_resume.experience:
+        return type("EmptyExperience", (), {"company": "", "title": "", "start_date": "", "end_date": ""})()
+    for experience in master_resume.experience:
+        if experience.end_date.strip().lower() in {"present", "current", "now"}:
+            return experience
+    return master_resume.experience[0]
+
+
+def _candidate_name_part(candidate_name: str, *, index: int) -> str:
+    parts = [part for part in candidate_name.split() if part]
+    if not parts:
+        return ""
+    return parts[index] if -len(parts) <= index < len(parts) else ""
+
+
+def _extract_email(contact_line: str) -> str:
+    match = re.search(r"[\w.+-]+@[\w.-]+\.\w+", contact_line)
+    return match.group(0) if match else ""
+
+
+def _extract_phone(contact_line: str) -> str:
+    match = re.search(r"\+?[\d(). -]{7,}", contact_line)
+    return match.group(0).strip() if match else ""
+
+
+def _should_require_manual_review(field_context: FieldContext) -> bool:
+    primary_text = _field_text_parts(field_context, include_surrounding=False)
+    return any(
+        term in primary_text
+        for term in [
+            "business type",
+            "business category",
+            "entity type",
+            "tax status",
+            "tax classification",
+        ]
+    )
