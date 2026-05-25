@@ -59,7 +59,7 @@ Expected stack:
 Common developer checks:
 
 ```powershell
-python -m pytest apps\local-service\tests -q
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-local-service.ps1
 npm run shared:check
 npm run extension:typecheck
 npm run extension:build

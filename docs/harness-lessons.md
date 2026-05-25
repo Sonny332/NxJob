@@ -54,3 +54,15 @@ If the same class repeats enough to change workflow expectations, also update:
 - prevention_update: future worker packets should own a small file group or a single responsibility; broad governance passes should be decomposed into `.agent_tasks`, `.claude/docs`, `scripts`, and review-only packets.
 - artifact_examples: sub-agent timeout during worker orchestration stabilization; no secrets or full logs retained.
 - status: confirmed
+
+## 2026-05-24 windows-python314-pytest-temp-acl
+
+- failure_class: environment_runtime
+- trigger: sub-agents and controller runs calling raw `python -m pytest` on Windows.
+- symptoms: `PermissionError: [WinError 5] Access is denied` while creating or cleaning pytest temp directories; SQLite tests can also fail with `sqlite3.OperationalError: disk I/O error` when the database is created under those temp paths.
+- root_cause_hypothesis: Python 3.14 / pytest creates temporary directories through `os.mkdir(..., 0o700)`, producing unusable ACLs on this Windows host. Separately, SQLite databases created under the repository's D-drive ACL can fail with disk I/O errors even when text writes succeed.
+- mitigation: run Python tests through `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1`; the wrapper applies a process-local mkdir mode patch before importing pytest and keeps runtime artifacts under the Windows temp folder.
+- prevention_update: task packets, worker prompts, and release checks should reference the wrapper instead of raw `python -m pytest`.
+- artifact_examples: pytest failures from 0.6.0 form-answer validation and follow-up worker runs; no secrets or full logs retained.
+- status: confirmed
+- resume_impact: future `/goal` resumes should state that Python test commands must use the NxJob pytest wrapper on Windows.

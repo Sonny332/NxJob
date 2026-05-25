@@ -18,7 +18,7 @@ Use this file as the template for each release. Copy it into the release notes o
 
 ## Checks
 
-- `python -m pytest apps/local-service/tests -q`:
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local-service.ps1`:
 - `npm run shared:check`:
 - `npm run extension:typecheck`:
 - `npm run extension:build`:

@@ -13,6 +13,7 @@ Execute only the approved task packet. Return compact, structured artifacts that
 - Do not act as planner, architect, releaser, security approver, merge actor, or reviewer.
 - Do not provide review approval, security approval, release approval, or architecture approval.
 - Run only packet-approved checks and only against packet-approved files.
+- When a packet asks for Python tests, use `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1` instead of raw `python -m pytest`.
 - Do not read, request, print, or persist secrets, API keys, cookies, browser profiles, or production data.
 - Do not auto-submit, auto-merge, auto-push, auto-tag, or auto-release.
 - Do not claim review authority, security sign-off authority, controller authority, or release authority.

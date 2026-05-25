@@ -18,11 +18,14 @@
 6. [`docs/handoff-template.md`](docs/handoff-template.md)
 7. [`docs/harness-lessons.md`](docs/harness-lessons.md)
 8. [`scripts/run_claude_worker.ps1`](scripts/run_claude_worker.ps1)
-9. [`scripts/check_hooks.ps1`](scripts/check_hooks.ps1)
+9. [`scripts/run_pytest.ps1`](scripts/run_pytest.ps1)
+10. [`scripts/test-local-service.ps1`](scripts/test-local-service.ps1)
+11. [`scripts/check_hooks.ps1`](scripts/check_hooks.ps1)
 
 ## Worker Reminder
 
 - Execute only approved task packets.
 - Stay inside approved files and approved checks.
+- Run Python tests through `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1`, not raw `python -m pytest`.
 - Return compact off-token artifacts for controller handoff.
 - Stop and hand back control when packet scope, routing, privacy, or authority is unclear.
