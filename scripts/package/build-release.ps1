@@ -28,45 +28,12 @@ try {
   if (-not $SkipChecks) {
     Invoke-Checked npm run shared:check
     Invoke-Checked npm run extension:typecheck
-    $env:PYTHONDONTWRITEBYTECODE = "1"
-    $pythonPaths = @((Join-Path $root "apps\local-service\src"))
-    $candidateDepsPaths = @(
-      (Join-Path $root ".python-deps"),
-      (Join-Path (Split-Path (Split-Path $root -Parent) -Parent) "NxJob\.python-deps")
-    )
-    foreach ($depsPath in $candidateDepsPaths) {
-      if (Test-Path -LiteralPath $depsPath) {
-        $pythonPaths = @($depsPath) + $pythonPaths
-        break
-      }
-    }
-    $env:PYTHONPATH = ($pythonPaths -join [System.IO.Path]::PathSeparator)
-
-    $testRuntimeDir = Join-Path $root (".nxjob\release-test\run-" + [System.Guid]::NewGuid().ToString("N"))
-    $testTempDir = Join-Path $testRuntimeDir "temp"
-    $testPytestBaseTempDir = Join-Path $testRuntimeDir "pytest-basetemp"
-    $testLocalAppDataDir = Join-Path $testRuntimeDir "localappdata"
-    $testGeneratedResumeDir = Join-Path $testRuntimeDir "generated-resumes"
-    New-Item -ItemType Directory -Force -Path $testTempDir | Out-Null
-    New-Item -ItemType Directory -Force -Path $testLocalAppDataDir | Out-Null
-    New-Item -ItemType Directory -Force -Path $testGeneratedResumeDir | Out-Null
-    $env:TEMP = $testTempDir
-    $env:TMP = $testTempDir
-    $env:PYTEST_DEBUG_TEMPROOT = $testRuntimeDir
-    $env:LOCALAPPDATA = $testLocalAppDataDir
-    $env:NXJOB_DB_PATH = Join-Path $testRuntimeDir "nxjob-test.sqlite3"
-    $env:NXJOB_GENERATED_RESUME_DIR = $testGeneratedResumeDir
-
-    Invoke-Checked -FilePath python -Arguments @(
-      "-m",
-      "pytest",
-      "apps\local-service\tests",
-      "-q",
-      "--tb=short",
-      "--basetemp",
-      $testPytestBaseTempDir,
-      "-p",
-      "no:cacheprovider"
+    Invoke-Checked -FilePath powershell -Arguments @(
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      (Join-Path $root "scripts\test-local-service.ps1")
     )
   }
 
@@ -99,7 +66,7 @@ try {
 
 - npm run shared:check: $checksText
 - npm run extension:typecheck: $checksText
-- python -m pytest apps/local-service/tests -q: $checksText
+- scripts/test-local-service.ps1: $checksText
 - scripts/package/build-release.ps1: Passed
 - scripts/package/validate-release.ps1: Pending
 - root .bat launchers: Generated
@@ -146,7 +113,7 @@ try {
       "release-manifest.json",
       "release-test-record-$Version.md"
     )
-    checks = if ($SkipChecks) { "skipped" } else { "shared:check, extension:typecheck, pytest" }
+    checks = if ($SkipChecks) { "skipped" } else { "shared:check, extension:typecheck, scripts/test-local-service.ps1" }
     notes = "Windows-first MVP package. Private data is excluded."
   }
   $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8

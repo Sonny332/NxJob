@@ -70,7 +70,7 @@ Class-specific guidance:
 - `authentication`: repair credentials outside the task packet; do not escalate the model.
 - `dependency_runtime`: install or repair the local prerequisite; do not escalate the model.
 - `permissions_boundary`: stop and ask the controller whether the boundary is intentional or the packet is wrong.
-- `environment_runtime`: repair the local prerequisite or isolate to a cleaner worker.
+- `environment_runtime`: repair the local prerequisite or isolate to a cleaner worker. For NxJob Python tests on Windows, first switch from raw `python -m pytest` to `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1` before changing models or retrying the same packet.
 - `artifact_contract`: fix the template or serializer before trusting any result.
 - `policy_safety`: stop immediately and return a blocked handoff.
 - `human_input`: request the missing decision or manual evidence; do not guess.

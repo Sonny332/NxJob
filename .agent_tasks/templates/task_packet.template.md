@@ -33,7 +33,7 @@ State the bounded implementation outcome in 1-3 sentences.
 
 ## Approved Checks
 
-- command:
+- command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-local-service.ps1
 - command:
 
 ## Output Contract

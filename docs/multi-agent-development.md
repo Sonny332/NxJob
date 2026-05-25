@@ -67,6 +67,13 @@ Observability should be off-token first. Prefer:
 
 These are the default signals the controller reads. Full `worker_log.ndjson` is a diagnostic artifact, not a polling surface.
 
+Python tests should run through `scripts/run_pytest.ps1` or
+`scripts/test-local-service.ps1`. Raw `python -m pytest` is not a reliable
+worker command on the current Windows Python 3.14 host because pytest temp
+directories can be created with unusable ACLs. The wrapper also keeps SQLite
+test databases out of the repository tree, whose D-drive ACL can cause
+`sqlite3.OperationalError: disk I/O error`.
+
 Avoid:
 
 - heavyweight dashboards;
