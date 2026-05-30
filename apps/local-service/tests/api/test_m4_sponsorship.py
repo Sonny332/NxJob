@@ -4,6 +4,7 @@ import sqlite3
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 
 from nxjob.main import create_app
 
@@ -74,6 +75,100 @@ def test_sponsorship_not_eligible_for_visa_sponsorship_uses_local_rules(
     assert body["ai_used"] is False
 
 
+def test_sponsorship_role_not_eligible_wording_uses_hard_negative_rule(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(
+            client,
+            "Data Center Engineer. This role is not eligible for sponsorship now or in the future.",
+        )
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "does_not_support"
+    assert body["sponsorship"]["confidence"] >= 0.93
+    assert body["ai_used"] is False
+
+
+@pytest.mark.parametrize(
+    "jd_text",
+    [
+        "No sponsorship is available for this role.",
+        "The employer will not provide visa sponsorship.",
+        "Applicants requiring future sponsorship cannot be considered.",
+        "This position does not offer H-1B sponsorship.",
+    ],
+)
+def test_sponsorship_hard_negative_wording_variants_use_local_rules(
+    tmp_path, monkeypatch, jd_text: str
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(client, jd_text)
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "does_not_support"
+    assert body["sponsorship"]["confidence"] >= 0.9
+    assert body["ai_used"] is False
+
+
+def test_sponsorship_without_sponsorship_now_or_future_is_likely_negative(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(
+            client,
+            "Applicants must be authorized to work in the United States without sponsorship now or in the future.",
+        )
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "likely_not_supports"
+    assert body["sponsorship"]["confidence"] >= 0.8
+    assert body["ai_used"] is False
+
+
+def test_sponsorship_work_authorization_alone_remains_confirmation(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(
+            client,
+            "Candidates must be authorized to work in the United States. This employer participates in E-Verify.",
+        )
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": False},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "needs_confirmation"
+    assert 0.4 <= body["sponsorship"]["confidence"] <= 0.6
+    assert body["ai_used"] is False
+
+
 class FakeAiResponse:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
@@ -93,7 +188,10 @@ def test_sponsorship_ambiguous_text_reports_missing_ai_config(tmp_path, monkeypa
     monkeypatch.delenv("NXJOB_AI_API_KEY", raising=False)
 
     with TestClient(create_app()) as client:
-        job_id = _capture_job(client, "Candidates must be authorized to work in the United States.")
+        job_id = _capture_job(
+            client,
+            "Candidates must be authorized to work in the United States. SECRET_JD_MARKER_DO_NOT_LOG.",
+        )
         response = client.post(
             "/api/v1/sponsorship/analyze",
             json={"job_lead_id": job_id, "allow_ai": True},
@@ -118,6 +216,10 @@ def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkey
         request_body = json.loads(request.data.decode("utf-8"))
         assert request.get_header("Authorization") == "Bearer test-api-key-secret"
         assert request_body["model"] == "test-model"
+        messages_text = json.dumps(request_body["messages"])
+        assert "role-specific sponsorship policy" in messages_text
+        assert "Generic work authorization language is not the same as no sponsorship" in messages_text
+        assert "public/company-history evidence can only support likely_* statuses" in messages_text
         return FakeAiResponse(
             {
                 "model": "test-model",
@@ -144,7 +246,10 @@ def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkey
     monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
 
     with TestClient(create_app()) as client:
-        job_id = _capture_job(client, "Candidates must be authorized to work in the United States.")
+        job_id = _capture_job(
+            client,
+            "Candidates must be authorized to work in the United States. SECRET_JD_MARKER_DO_NOT_LOG.",
+        )
         response = client.post(
             "/api/v1/sponsorship/analyze",
             json={"job_lead_id": job_id, "allow_ai": True},
@@ -164,6 +269,7 @@ def test_sponsorship_ambiguous_text_uses_configured_ai_provider(tmp_path, monkey
 
     assert prompt_log == ("JD sponsorship indicators only; full JD not logged", "test-model", "openai", "")
     assert "test-api-key-secret" not in response.text
+    assert "SECRET_JD_MARKER_DO_NOT_LOG" not in "\n".join(str(item) for item in prompt_log)
 
 
 def test_sponsorship_can_disable_ai_fallback(tmp_path, monkeypatch) -> None:

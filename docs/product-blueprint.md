@@ -370,6 +370,13 @@ Sponsorship 状态只能表达求职决策风险，不表达法律结论：
 - `needs_confirmation`：需要向 recruiter 或申请表继续确认。
 - `unknown`：证据不足。
 
+MVP 判断优先级：
+
+1. 当前 JD 或申请表中的 role-specific 明确政策，例如 `not eligible for visa sponsorship` 或 `sponsorship is available for this role`。
+2. 申请表筛选语句，例如 `authorized to work without sponsorship now or in the future`。
+3. 泛化 work authorization 语句，例如 `authorized to work in the United States`。这类语句只能触发确认，不能直接等同于不支持 sponsorship。
+4. 公司政策、历史投递、政府公开数据或第三方聚合数据。这些信息只能作为概率证据，不能覆盖当前岗位的明确拒绝。
+
 公开信息优先级：
 
 - 当前 JD 和申请表原文。
