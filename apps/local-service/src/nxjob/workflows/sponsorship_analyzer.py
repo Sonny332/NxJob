@@ -53,12 +53,39 @@ EXPLICIT_NEGATIVE_RULES = [
     ),
     Rule(
         re.compile(
-            r"\b(no\s+visa\s+sponsorship|(?:visa\s+)?sponsorship\s+(is\s+)?not\s+available|not\s+eligible\s+for\s+(?:visa\s+)?sponsorship)\b",
+            r"\b(no\s+(?:visa\s+)?sponsorship|(?:visa\s+)?sponsorship\s+(is\s+)?not\s+available|not\s+eligible\s+for\s+(?:visa\s+)?sponsorship)\b",
             re.IGNORECASE,
         ),
         "does_not_support",
         0.94,
         "The posting explicitly excludes visa sponsorship.",
+    ),
+    Rule(
+        re.compile(
+            r"\b(will\s+not|do\s+not|does\s+not|cannot|can't|unable\s+to)\s+(?:provide|offer|support)\s+(?:visa\s+|h-?1b\s+)?sponsorship\b",
+            re.IGNORECASE,
+        ),
+        "does_not_support",
+        0.94,
+        "The posting explicitly says sponsorship will not be provided.",
+    ),
+    Rule(
+        re.compile(
+            r"\b(?:visa\s+|h-?1b\s+)?sponsorship\s+(?:is\s+)?(?:not\s+offered|not\s+provided|unavailable)\b",
+            re.IGNORECASE,
+        ),
+        "does_not_support",
+        0.93,
+        "The posting explicitly says sponsorship is not offered.",
+    ),
+    Rule(
+        re.compile(
+            r"\brequir(?:e|ing)\s+(?:future\s+)?(?:visa\s+|h-?1b\s+)?sponsorship\b.{0,80}\b(cannot|can't|will\s+not)\s+be\s+(?:considered|accepted)\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "does_not_support",
+        0.93,
+        "The posting excludes applicants who require sponsorship.",
     ),
 ]
 
@@ -86,12 +113,12 @@ EXPLICIT_POSITIVE_RULES = [
 LIKELY_NEGATIVE_RULES = [
     Rule(
         re.compile(
-            r"\b(authorized\s+to\s+work|work\s+authorization).{0,80}\bwithout\s+(?:visa\s+)?sponsorship\b",
+            r"\b(authorized\s+to\s+work|work\s+authorization).{0,120}\bwithout\s+(?:requiring\s+)?(?:visa\s+)?sponsorship\b.{0,80}\b(now\s+or\s+in\s+the\s+future)\b",
             re.IGNORECASE | re.DOTALL,
         ),
         "likely_not_supports",
-        0.78,
-        "The posting requires work authorization without sponsorship.",
+        0.86,
+        "The posting appears to screen out candidates who need sponsorship now or in the future.",
     ),
     Rule(
         re.compile(
@@ -99,8 +126,17 @@ LIKELY_NEGATIVE_RULES = [
             re.IGNORECASE | re.DOTALL,
         ),
         "likely_not_supports",
-        0.76,
+        0.84,
         "The wording suggests candidates needing sponsorship may be filtered out.",
+    ),
+    Rule(
+        re.compile(
+            r"\b(authorized\s+to\s+work|work\s+authorization).{0,80}\bwithout\s+(?:visa\s+)?sponsorship\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "likely_not_supports",
+        0.82,
+        "The posting requires work authorization without sponsorship.",
     ),
 ]
 
@@ -312,8 +348,16 @@ def _ai_messages(
 ) -> list[dict[str, str]]:
     system = (
         "You are NxJob Sponsorship Analyzer. Return only a JSON object. "
-        "Classify whether this job posting appears to support work visa sponsorship. "
-        "Use only the supplied job description and form text. Do not provide legal advice. "
+        "Classify whether this job posting appears to support work visa sponsorship for job-search prioritization. "
+        "Use only the supplied job description and form text unless public evidence is explicitly supplied. "
+        "Do not provide legal advice. "
+        "Research method: first look for a role-specific sponsorship policy in the JD; "
+        "then distinguish generic work authorization language from no-sponsorship policy; "
+        "then consider location, employment type, and application-form screening wording; "
+        "then consider employer or public history only as weaker probability evidence. "
+        "Generic work authorization language is not the same as no sponsorship. "
+        "A role-specific 'not eligible for sponsorship' statement overrides company-level or historical support. "
+        "public/company-history evidence can only support likely_* statuses unless the supplied text explicitly confirms this role. "
         "Allowed statuses: supports, does_not_support, likely_supports, likely_not_supports, "
         "needs_confirmation, unknown. Prefer needs_confirmation when evidence is ambiguous."
     )
@@ -323,8 +367,18 @@ def _ai_messages(
             "confidence": "number from 0 to 1",
             "summary": "short user-facing summary",
             "evidence": "short excerpt or reasoning from the supplied text",
+            "decision_basis": "role_specific_jd_policy, application_form_screening, generic_work_authorization, employer_policy_or_history, or insufficient_evidence",
+            "evidence_type": "explicit_support, explicit_rejection, screening_negative, ambiguous_authorization, public_history, or none",
             "risk_flags": ["short risk flag"],
             "questions_to_confirm": ["short question for recruiter or application form"],
+        },
+        "status_guidance": {
+            "supports": "Use only when this role or supplied official text explicitly says sponsorship is available.",
+            "does_not_support": "Use when this role explicitly says sponsorship is not available or not eligible.",
+            "likely_supports": "Use for weaker positive evidence such as supplied employer history without role-specific confirmation.",
+            "likely_not_supports": "Use for strong screening wording such as authorized without sponsorship now or in the future.",
+            "needs_confirmation": "Use for generic work authorization language or mixed evidence.",
+            "unknown": "Use when sponsorship evidence is absent.",
         },
         "job": {
             "company_name": payload.company_name,
