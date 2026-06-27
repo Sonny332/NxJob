@@ -16,8 +16,8 @@ PROVIDER_DEFAULTS = {
     "deepseek": ("https://api.deepseek.com/v1", "deepseek-v4-flash"),
     "deepseek_v4_flash": ("https://api.deepseek.com/v1", "deepseek-v4-flash"),
     "deepseek_v4_pro": ("https://api.deepseek.com/v1", "deepseek-v4-pro"),
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash-lite"),
-    "gemini_grounded": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.1-flash-lite"),
+    "gemini_grounded": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash"),
     "openrouter": ("https://openrouter.ai/api/v1", "openai/gpt-4.1-mini"),
 }
 
@@ -65,6 +65,9 @@ def request_json_object(
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
     }
+    reasoning_effort = config.reasoning_effort.strip() if _supports_reasoning_effort(config.provider) else ""
+    if reasoning_effort:
+        payload["reasoning_effort"] = reasoning_effort
     request = Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),
@@ -130,6 +133,10 @@ def _default_base_url(provider: str) -> str:
 
 def _default_model(provider: str) -> str:
     return PROVIDER_DEFAULTS.get(provider.strip().lower(), ("", ""))[1]
+
+
+def _supports_reasoning_effort(provider: str) -> bool:
+    return provider.strip().lower() in {"gemini", "gemini_grounded"}
 
 
 def _message_content(response_data: dict[str, Any]) -> str:

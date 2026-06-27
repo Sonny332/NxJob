@@ -97,8 +97,8 @@ def test_chat_completions_endpoint_normalizes_common_provider_base_urls(
         ("deepseek", "deepseek-v4-flash"),
         ("deepseek_v4_flash", "deepseek-v4-flash"),
         ("deepseek_v4_pro", "deepseek-v4-pro"),
-        ("gemini", "gemini-2.5-flash-lite"),
-        ("gemini_grounded", "gemini-2.5-flash"),
+        ("gemini", "gemini-3.1-flash-lite"),
+        ("gemini_grounded", "gemini-3.5-flash"),
     ],
 )
 def test_openai_compatible_client_uses_provider_default_models(
@@ -131,6 +131,64 @@ def test_openai_compatible_client_uses_provider_default_models(
     )
 
     assert captured["payload"]["model"] == expected_model
+
+
+def test_openai_compatible_client_sends_reasoning_effort(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(
+            {
+                "model": "gemini-3.1-flash-lite",
+                "usage": {},
+                "choices": [{"message": {"content": "{\"ok\": true}"}}],
+            }
+        )
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    request_json_object(
+        AiProviderConfig(
+            provider="gemini",
+            base_url="",
+            model="gemini-3.1-flash-lite",
+            api_key="test-api-key-secret",
+            reasoning_effort="minimal",
+        ),
+        [{"role": "user", "content": "Return JSON."}],
+    )
+
+    assert captured["payload"]["reasoning_effort"] == "minimal"
+
+
+def test_openai_compatible_client_omits_reasoning_effort_for_other_providers(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(
+            {
+                "model": "test-model",
+                "usage": {},
+                "choices": [{"message": {"content": "{\"ok\": true}"}}],
+            }
+        )
+
+    monkeypatch.setattr("nxjob.ai.openai_compatible.urlopen", fake_urlopen)
+
+    request_json_object(
+        AiProviderConfig(
+            provider="openai_compatible",
+            base_url="https://api.example.test/v1",
+            model="test-model",
+            api_key="test-api-key-secret",
+            reasoning_effort="medium",
+        ),
+        [{"role": "user", "content": "Return JSON."}],
+    )
+
+    assert "reasoning_effort" not in captured["payload"]
 
 
 @pytest.mark.parametrize(
@@ -181,7 +239,7 @@ def test_openai_compatible_client_explains_retryable_provider_unavailable(monkey
             AiProviderConfig(
                 provider="gemini",
                 base_url="",
-                model="gemini-2.5-flash-lite",
+                model="gemini-3.1-flash-lite",
                 api_key="test-api-key-secret",
             ),
             [{"role": "user", "content": "Return JSON."}],

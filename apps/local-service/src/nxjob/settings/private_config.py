@@ -413,7 +413,7 @@ def _normalize_provider(provider: str) -> str:
 
 def _normalize_reasoning_effort(reasoning_effort: str) -> str:
     value = reasoning_effort.strip().lower().replace("-", "_")
-    return value if value in {"none", "low", "medium", "high"} else "medium"
+    return value if value in {"none", "minimal", "low", "medium", "high"} else "medium"
 
 
 def _default_profile_name(provider: str, model: str) -> str:

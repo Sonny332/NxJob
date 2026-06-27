@@ -179,7 +179,7 @@ Long-running agent or command work must have an explicit timeout and fallback.
 - When sub-agents are used, the controller must keep a short list of active agents, their assigned role, and the last useful result. Do not let a completed implementation wait indefinitely for a review agent; use one bounded wait, then retry, replace, or report a blocked review gate. A required review timeout is not equivalent to approval.
 - When the right-side branch details or handoff summary lists sub-agents, show more than the nickname. Include the assigned role, exact model version, reasoning effort, and current state. If the exact model cannot be confirmed for a required gate, report `unknown, not acceptable for required gate` and retry with explicit model selection. Use a compact format such as `Jason — Reviewer / Evaluator — GPT-5.5 Thinking / Medium — closed after timeout`.
 - If a command fails twice with the same class of error, stop repeating it and switch to systematic debugging: identify the failing layer, form one hypothesis, and test that hypothesis with the smallest command.
-- On Windows, do not ask sub-agents or Claude workers to run raw `python -m pytest`. Use `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1` so pytest temp directories are created through the repository harness under the Windows temp folder rather than Python 3.14's restrictive Windows `0o700` mkdir path or the repository's D-drive ACL.
+- On Windows, do not ask sub-agents or Claude workers to run raw `python -m pytest`. Follow the Windows pytest and ACL procedure below.
 - If a command appears to hang, check whether useful work has already completed before retrying. Record the last successful command and avoid rerunning broad suites unnecessarily.
 - At handoff, report any interrupted or closed sub-agents, known background processes, and whether the worktree is clean.
 
@@ -189,6 +189,45 @@ Default timeout guidance:
 - Local service startup, packaging, or release validation: 2-10 minutes with progress updates.
 - Sub-agent review or implementation: wait once with a bounded timeout. If the sub-agent is optional, poll or close if no status is returned. If the sub-agent is required, retry with a narrower task, replace it, or report the gate as blocked.
 - Anything still running after 30 minutes requires an explicit status update and a decision to continue, close, or replace the task path.
+
+## Windows Pytest Temporary Directory and ACL Procedure
+
+NxJob has a repository-scoped test harness for the known Python 3.14 / pytest temporary-directory ACL conflict on this Windows host. The harness is the default entry point; a raw `python -B -m pytest` command is not the NxJob default because it bypasses the approved process-local compatibility.
+
+### Execution order
+
+1. Run tests through one of these project wrappers:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_pytest.ps1 <test-path> -q
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-local-service.ps1 <test-path> -q
+   ```
+
+   The harness disables pytest cache by default, and `test-local-service.ps1` also disables Python bytecode generation. Do not add a separate raw pytest attempt first.
+
+2. If the Codex filesystem sandbox causes `PermissionError`, `WinError 5`, `Access is denied`, `pytest-of-<username>`, or `pytest-cache-files-*`, stop repeating the same sandboxed command. Request sandbox-external execution for only the exact wrapper command.
+
+3. Sandbox-external execution must keep the current ordinary Windows user. When the privilege state is uncertain, verify that the process is not elevated before testing. Sandbox bypass does not authorize `RunAs`, an administrator terminal, UAC elevation, or a system account.
+
+4. Do not request broad approval for Python, PowerShell, or arbitrary scripts. Scope approval to the concrete wrapper command and test target.
+
+### ACL and cleanup boundaries
+
+- Never recursively grant `FullControl` to Python, the repository, the user TEMP directory, a pytest root, or a parent directory.
+- Changing `TEMP`, `TMP`, or `--basetemp` is not by itself a reliable fix because pytest may create another restrictive `0o700` directory.
+- If a failed runtime directory must be removed, do so outside the Codex sandbox under the same ordinary user. Resolve and verify the complete absolute path first, then remove only the identified pytest or NxJob test runtime directory.
+- Do not modify global Python, pytest source under `site-packages`, system ACLs, or production code.
+- `scripts/run_pytest.py` is the already-approved project-level fallback: it adjusts directory mode only inside the pytest process. Any replacement, expansion, or new compatibility wrapper requires explicit user approval.
+
+### Test report requirements
+
+Every Windows pytest report must include:
+
+- the exact wrapper command;
+- whether execution was inside or outside the Codex filesystem sandbox;
+- confirmation that the process remained under the ordinary non-admin Windows user;
+- pytest passed/failed/error counts;
+- whether test temporary directories were created and whether any were cleaned.
 
 ## Windows Path Handling
 
