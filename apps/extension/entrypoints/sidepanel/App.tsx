@@ -128,13 +128,13 @@ const AI_PROVIDER_PRESETS = {
   gemini: {
     label: "Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.5-flash-lite",
-    help: "Use with a Gemini API key. Default is Flash-Lite for non-grounded resume tailoring."
+    model: "gemini-3.1-flash-lite",
+    help: "Use with a Gemini API key. Default is 3.1 Flash-Lite for non-grounded resume tailoring."
   },
   gemini_grounded: {
     label: "Gemini + Google Search",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.5-flash",
+    model: "gemini-3.5-flash",
     help: "Use when a workflow needs Google Search grounding. Tailor Resume does not use grounding yet."
   },
   openrouter: {
@@ -757,6 +757,7 @@ export function App() {
               <span>Thinking Strength</span>
               <select value={apiReasoningEffort} onChange={(event) => setApiReasoningEffort(event.target.value)}>
                 <option value="none">None</option>
+                <option value="minimal">Minimal</option>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>

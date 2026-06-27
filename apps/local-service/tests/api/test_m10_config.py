@@ -99,7 +99,7 @@ def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, 
             json={
                 "provider": "gemini",
                 "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-                "model": "gemini-2.5-flash-lite",
+                "model": "gemini-3.1-flash-lite",
                 "api_key": "private-test-api-key",
             },
         )
@@ -108,7 +108,7 @@ def test_private_ai_provider_takes_priority_over_environment_fallback(tmp_path, 
 
     assert saved.status_code == 200
     assert status.json()["ai_provider_name"] == "gemini"
-    assert status.json()["ai_model"] == "gemini-2.5-flash-lite"
+    assert status.json()["ai_model"] == "gemini-3.1-flash-lite"
     assert status.json()["ai_provider_source"] == "private_config"
     assert "private-test-api-key" not in status.text
     assert cleared.json()["ai_provider_name"] == "deepseek"
@@ -201,4 +201,26 @@ def test_config_normalizes_deepseek_v4_provider_aliases(tmp_path, monkeypatch) -
     assert saved.status_code == 200
     assert status.json()["ai_provider_name"] == "deepseek_v4_pro"
     assert status.json()["ai_model"] == "deepseek-v4-pro"
+    assert "private-test-api-key" not in status.text
+
+
+def test_config_accepts_minimal_reasoning_effort(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        saved = client.post(
+            "/api/v1/config/ai-provider",
+            json={
+                "provider": "gemini",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "model": "gemini-3.1-flash-lite",
+                "api_key": "private-test-api-key",
+                "reasoning_effort": "minimal",
+            },
+        )
+        status = client.get("/api/v1/config/status")
+
+    assert saved.status_code == 200
+    assert status.json()["ai_reasoning_effort"] == "minimal"
     assert "private-test-api-key" not in status.text
