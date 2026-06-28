@@ -293,37 +293,59 @@ export function App() {
       const hydratedRecord = await hydrateWorkflowResults(nextRecord);
       await hydrateTrackingForJobs([hydratedRecord]);
 
-      setWorkspace((current) => upsertWorkspaceJob(current, hydratedRecord));
+      const latestWorkspace = await loadWorkspaceState();
+      const nextWorkspace = upsertWorkspaceJob(latestWorkspace, hydratedRecord);
+      setWorkspace(nextWorkspace);
+      await saveWorkspaceState(nextWorkspace);
+      if (!hydratedRecord.workflows.sponsorship.result) {
+        setMessage("Current job captured. Running local sponsorship check...");
+        await runSponsorship(hydratedRecord, { allowAi: false });
+        return;
+      }
       setMessage(capture.dedupe.is_duplicate ? "Existing JobLead restored from cache." : "Current job captured.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to capture current job.");
     }
   }
 
-  async function runSponsorship(job: JobWorkspaceRecord, forceRefresh = false) {
+  async function runSponsorship(
+    job: JobWorkspaceRecord,
+    options: { forceRefresh?: boolean; allowAi?: boolean } = {}
+  ) {
     if (job.workflows.sponsorship.status === "running") {
       setMessage("Sponsorship analysis is already running for this job.");
       return;
     }
 
+    const allowAi = options.allowAi ?? true;
     markWorkflow(job.id, "sponsorship", "running");
     try {
       const response = await chrome.runtime.sendMessage({
         type: "NXJOB_RUN_SPONSORSHIP",
         jobLead: job.jobLead,
-        forceRefresh
+        forceRefresh: options.forceRefresh ?? false,
+        allowAi
       }) as WorkflowMessageResponse;
       const nextState = await loadWorkspaceState();
       setWorkspace(nextState);
       if (!response.ok) {
-        setMessage(response.error);
+        setMessage(allowAi ? response.error : `Local sponsorship check failed: ${response.error}`);
         return;
       }
-      setMessage(
-        response.result.cache.hit ? "Sponsorship result restored from cache." : "Sponsorship analysis completed."
-      );
+      if (!allowAi) {
+        if (response.result.ai_used) {
+          setMessage("Existing AI sponsorship result kept.");
+          return;
+        }
+        setMessage(response.result.cache.hit ? "Local sponsorship result restored from cache." : "Local sponsorship check completed.");
+        return;
+      }
+      setMessage(response.result.cache.hit ? "Sponsorship result restored from cache." : "Sponsorship analysis completed.");
     } catch (error) {
       setWorkflowError(job.id, "sponsorship", error);
+      if (!allowAi) {
+        setMessage(error instanceof Error ? `Local sponsorship check failed: ${error.message}` : "Local sponsorship check failed.");
+      }
     }
   }
 
@@ -864,8 +886,8 @@ export function App() {
             <JobDetail
               job={focusedJob}
               masterResumeReady={Boolean(config?.master_resume_configured && config?.resume_output_dir_configured)}
-              onAnalyze={() => runSponsorship(focusedJob)}
-              onAnalyzeRefresh={() => runSponsorship(focusedJob, true)}
+              onAnalyze={() => runSponsorship(focusedJob, { allowAi: true })}
+              onAnalyzeRefresh={() => runSponsorship(focusedJob, { forceRefresh: true, allowAi: false })}
               onTailor={() => runTailor(focusedJob)}
               onTailorRefresh={() => runTailor(focusedJob, true)}
               onDraftAnswer={() => runFormAnswer(focusedJob)}
@@ -916,6 +938,7 @@ function JobDetail(props: {
   const sponsorship = job.workflows.sponsorship.result;
   const resume = job.workflows.resume.result;
   const formAnswer = job.workflows.formAnswer.result;
+  const canRunAiSponsorship = !sponsorship || isAmbiguousSponsorshipStatus(sponsorship.sponsorship.status);
 
   return (
     <article className="detail-card">
@@ -940,11 +963,20 @@ function JobDetail(props: {
       </div>
 
       <div className="action-row">
-        <button type="button" disabled={job.workflows.sponsorship.status === "running"} onClick={props.onAnalyze}>
+        <button
+          type="button"
+          disabled={job.workflows.sponsorship.status === "running" || !canRunAiSponsorship}
+          onClick={props.onAnalyze}
+        >
           {job.workflows.sponsorship.status === "running" ? "Analyzing..." : "Analyze Sponsorship"}
         </button>
-        <button type="button" className="secondary-button" onClick={props.onAnalyzeRefresh}>
-          Re-run
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={job.workflows.sponsorship.status === "running" || Boolean(sponsorship?.ai_used)}
+          onClick={props.onAnalyzeRefresh}
+        >
+          Re-run Local
         </button>
       </div>
 
@@ -1347,6 +1379,10 @@ function sponsorshipLabel(status: SponsorshipStatus): string {
     unknown: "Unknown"
   };
   return labels[status];
+}
+
+function isAmbiguousSponsorshipStatus(status: SponsorshipStatus): boolean {
+  return status === "needs_confirmation" || status === "unknown";
 }
 
 function inferApplicationMethod(job: JobWorkspaceRecord): ApplicationMethod {

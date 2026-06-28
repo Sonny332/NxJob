@@ -464,7 +464,7 @@ export async function listSuccessReferences(options: { limit?: number } = {}): P
 export async function analyzeSponsorship(
   jobLead: JobLeadRecord,
   context: PageContext | null,
-  options: { forceRefresh?: boolean } = {}
+  options: { forceRefresh?: boolean; allowAi?: boolean } = {}
 ): Promise<SponsorshipAnalyzeResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/sponsorship/analyze`, {
     method: "POST",
@@ -478,7 +478,7 @@ export async function analyzeSponsorship(
       job_url: context?.url ?? jobLead.source_url,
       application_form_text: "",
       allow_public_lookup: false,
-      allow_ai: true,
+      allow_ai: options.allowAi ?? true,
       force_refresh: options.forceRefresh ?? false
     })
   });

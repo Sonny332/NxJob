@@ -1,6 +1,6 @@
 {
   "name": "@nxjob/extension",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "wxt prepare && tsc --noEmit"
   },
   "dependencies": {
-    "@nxjob/shared": "0.6.0",
+    "@nxjob/shared": "0.6.1",
     "@wxt-dev/module-react": "latest",
     "react": "latest",
     "react-dom": "latest",

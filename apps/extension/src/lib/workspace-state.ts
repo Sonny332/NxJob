@@ -113,7 +113,17 @@ export function upsertWorkspaceJob(
         pageTextLength: record.pageTextLength,
         updatedAt: new Date().toISOString(),
         visibility: "active" as const,
-        hiddenAt: ""
+        hiddenAt: "",
+        workflows: {
+          sponsorship: mergeWorkflowRun(
+            existing.workflows.sponsorship,
+            record.workflows.sponsorship,
+            shouldKeepExistingSponsorshipResult,
+            shouldUseIncomingSponsorshipResult
+          ),
+          resume: mergeWorkflowRun(existing.workflows.resume, record.workflows.resume),
+          formAnswer: mergeWorkflowRun(existing.workflows.formAnswer, record.workflows.formAnswer)
+        }
       }
     : record;
 
@@ -123,6 +133,42 @@ export function upsertWorkspaceJob(
     showHidden: state.showHidden,
     jobs
   };
+}
+
+function mergeWorkflowRun<T>(
+  existing: WorkflowRun<T>,
+  incoming: WorkflowRun<T>,
+  shouldKeepExistingResult?: (existingResult: T, incomingResult: T) => boolean,
+  shouldUseIncomingResult?: (existingResult: T, incomingResult: T) => boolean
+): WorkflowRun<T> {
+  if (existing.result && incoming.result && shouldKeepExistingResult?.(existing.result, incoming.result)) return existing;
+  if (existing.result && incoming.result && shouldUseIncomingResult?.(existing.result, incoming.result)) return incoming;
+  if (existing.result && incoming.result) return newerWorkflowRun(existing, incoming);
+  if (existing.result) return existing;
+  if (incoming.result) return incoming;
+  if (existing.status === "running") return existing;
+  return incoming.status === "idle" ? existing : incoming;
+}
+
+function shouldKeepExistingSponsorshipResult(
+  existing: SponsorshipAnalyzeResponse,
+  incoming: SponsorshipAnalyzeResponse
+): boolean {
+  return existing.ai_used && !incoming.ai_used;
+}
+
+function shouldUseIncomingSponsorshipResult(
+  existing: SponsorshipAnalyzeResponse,
+  incoming: SponsorshipAnalyzeResponse
+): boolean {
+  return !existing.ai_used && incoming.ai_used;
+}
+
+function newerWorkflowRun<T>(existing: WorkflowRun<T>, incoming: WorkflowRun<T>): WorkflowRun<T> {
+  const existingTime = Date.parse(existing.updatedAt);
+  const incomingTime = Date.parse(incoming.updatedAt);
+  if (!Number.isFinite(existingTime) || !Number.isFinite(incomingTime)) return existing;
+  return incomingTime > existingTime ? incoming : existing;
 }
 
 export function updateWorkspaceJob(

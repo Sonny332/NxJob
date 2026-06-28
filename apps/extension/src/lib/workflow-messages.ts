@@ -4,6 +4,7 @@ export type RunSponsorshipMessage = {
   type: "NXJOB_RUN_SPONSORSHIP";
   jobLead: JobLeadRecord;
   forceRefresh: boolean;
+  allowAi?: boolean;
 };
 
 export type RunTailorMessage = {

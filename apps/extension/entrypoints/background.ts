@@ -39,7 +39,9 @@ export default defineBackground(() => {
 
 function workflowRunKey(message: RunSponsorshipMessage | RunTailorMessage): string {
   const workflow = message.type === "NXJOB_RUN_SPONSORSHIP" ? "sponsorship" : "resume";
-  return `${workflow}:${message.jobLead.id}:${message.jobLead.jd_hash}:${message.forceRefresh ? "refresh" : "cached"}`;
+  const cacheMode = message.forceRefresh ? "refresh" : "cached";
+  const aiMode = message.type === "NXJOB_RUN_SPONSORSHIP" && message.allowAi === false ? "local" : "ai";
+  return `${workflow}:${message.jobLead.id}:${message.jobLead.jd_hash}:${cacheMode}:${aiMode}`;
 }
 
 async function runWorkflow(message: RunSponsorshipMessage | RunTailorMessage): Promise<WorkflowMessageResponse> {
@@ -47,10 +49,11 @@ async function runWorkflow(message: RunSponsorshipMessage | RunTailorMessage): P
     await setWorkflowStatus(message.jobLead.id, "sponsorship", "running", "");
     try {
       const result = await analyzeSponsorship(message.jobLead, null, {
-        forceRefresh: message.forceRefresh
+        forceRefresh: message.forceRefresh,
+        allowAi: message.allowAi
       });
-      await setWorkflowResult(message.jobLead.id, "sponsorship", result);
-      return { ok: true, workflow: "sponsorship", result };
+      const savedResult = await setWorkflowResult(message.jobLead.id, "sponsorship", result);
+      return { ok: true, workflow: "sponsorship", result: savedResult };
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Sponsorship analysis failed.";
       await setWorkflowStatus(message.jobLead.id, "sponsorship", "failed", messageText);
@@ -63,8 +66,8 @@ async function runWorkflow(message: RunSponsorshipMessage | RunTailorMessage): P
     const result = await tailorResume(message.jobLead, {
       forceRefresh: message.forceRefresh
     });
-    await setWorkflowResult(message.jobLead.id, "resume", result);
-    return { ok: true, workflow: "resume", result };
+    const savedResult = await setWorkflowResult(message.jobLead.id, "resume", result);
+    return { ok: true, workflow: "resume", result: savedResult };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Resume tailor failed.";
     await setWorkflowStatus(message.jobLead.id, "resume", "failed", messageText);
@@ -100,32 +103,58 @@ async function setWorkflowResult(
   jobId: string,
   workflow: "sponsorship",
   result: Awaited<ReturnType<typeof analyzeSponsorship>>
-): Promise<void>;
+): Promise<Awaited<ReturnType<typeof analyzeSponsorship>>>;
 async function setWorkflowResult(
   jobId: string,
   workflow: "resume",
   result: Awaited<ReturnType<typeof tailorResume>>
-): Promise<void>;
+): Promise<Awaited<ReturnType<typeof tailorResume>>>;
 async function setWorkflowResult(
   jobId: string,
   workflow: "sponsorship" | "resume",
   result: Awaited<ReturnType<typeof analyzeSponsorship>> | Awaited<ReturnType<typeof tailorResume>>
-) {
+): Promise<Awaited<ReturnType<typeof analyzeSponsorship>> | Awaited<ReturnType<typeof tailorResume>>> {
   const state = await loadWorkspaceState();
+  let savedResult = result;
   await saveWorkspaceState(
-    updateWorkspaceJob(state, jobId, (job) => ({
-      ...job,
-      updatedAt: new Date().toISOString(),
-      workflows: {
-        ...job.workflows,
-        [workflow]: {
-          status: "completed",
-          updatedAt: new Date().toISOString(),
-          traceId: result.trace_id,
-          result,
-          error: ""
+    updateWorkspaceJob(state, jobId, (job) => {
+      if (workflow === "sponsorship") {
+        const nextResult = result as Awaited<ReturnType<typeof analyzeSponsorship>>;
+        const existingResult = job.workflows.sponsorship.result;
+        if (!nextResult.ai_used && existingResult?.ai_used) {
+          savedResult = existingResult;
+          return {
+            ...job,
+            updatedAt: new Date().toISOString(),
+            workflows: {
+              ...job.workflows,
+              sponsorship: {
+                status: "completed",
+                updatedAt: new Date().toISOString(),
+                traceId: existingResult.trace_id,
+                result: existingResult,
+                error: ""
+              }
+            }
+          };
         }
       }
-    }))
+
+      return {
+        ...job,
+        updatedAt: new Date().toISOString(),
+        workflows: {
+          ...job.workflows,
+          [workflow]: {
+            status: "completed",
+            updatedAt: new Date().toISOString(),
+            traceId: result.trace_id,
+            result,
+            error: ""
+          }
+        }
+      };
+    })
   );
+  return savedResult;
 }
