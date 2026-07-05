@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException
 
 from nxjob.core.trace import new_trace_id
+from nxjob.data.dol_lca_index_manager import get_dol_index_status
 from nxjob.schemas.core import (
     AiProviderProfileActivateResponse,
     AiProviderProfilesResponse,
     AiProviderConfigUpdate,
     ConfigStatusResponse,
+    DolCacheDirectoryUpdate,
+    DolIndexStatusSummary,
     MasterResumeConfigUpdate,
     ResumeOutputDirectoryUpdate,
 )
@@ -17,10 +22,12 @@ from nxjob.settings.private_config import (
     delete_ai_provider_config,
     delete_ai_provider_profile,
     list_ai_provider_profiles,
+    read_dol_cache_status,
     read_ai_provider_status,
     read_master_resume_status,
     read_resume_output_status,
     save_ai_provider_config,
+    save_dol_cache_dir,
     save_master_resume,
     save_resume_output_dir,
 )
@@ -41,6 +48,8 @@ def read_config_status() -> ConfigStatusResponse:
         ai_provider_source,
     ) = read_ai_provider_status()
     output_configured, _output_source, output_dir = read_resume_output_status()
+    dol_cache_configured, dol_cache_source, dol_cache_dir = read_dol_cache_status()
+    dol_index_status = DolIndexStatusSummary.model_validate(asdict(get_dol_index_status(check_remote=False)))
     warnings: list[str] = []
 
     if not master_configured:
@@ -63,7 +72,11 @@ def read_config_status() -> ConfigStatusResponse:
         ai_provider_source=ai_provider_source if ai_configured else "",
         resume_output_dir_configured=output_configured,
         resume_output_dir=output_dir,
-        public_lookup_available=False,
+        dol_cache_dir_configured=dol_cache_configured,
+        dol_cache_dir_source=dol_cache_source,
+        dol_cache_dir=dol_cache_dir,
+        public_lookup_available=True,
+        dol_index_status=dol_index_status,
         warnings=warnings,
     )
 
@@ -123,6 +136,16 @@ def clear_ai_provider_config() -> ConfigStatusResponse:
 def update_resume_output_directory(payload: ResumeOutputDirectoryUpdate) -> ConfigStatusResponse:
     try:
         save_resume_output_dir(payload)
+    except PrivateConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return read_config_status()
+
+
+@router.post("/dol-cache-directory", response_model=ConfigStatusResponse)
+def update_dol_cache_directory(payload: DolCacheDirectoryUpdate) -> ConfigStatusResponse:
+    try:
+        save_dol_cache_dir(payload)
     except PrivateConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

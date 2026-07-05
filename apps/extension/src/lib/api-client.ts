@@ -128,7 +128,67 @@ export type ConfigStatusResponse = {
   ai_provider_source: string;
   resume_output_dir_configured: boolean;
   resume_output_dir: string;
+  dol_cache_dir_configured: boolean;
+  dol_cache_dir_source: string;
+  dol_cache_dir: string;
   public_lookup_available: boolean;
+  dol_index_status: DolIndexStatus;
+  warnings: string[];
+};
+
+export type DolIndexSelectedFile = {
+  fy: number;
+  quarter: number | null;
+  url: string;
+  path: string;
+  size_bytes: number;
+};
+
+export type DolIndexJob = {
+  job_id: string;
+  status: string;
+  phase: string;
+  message: string;
+  error: string;
+  started_at: string;
+  completed_at: string;
+  progress_current: number;
+  progress_total: number;
+};
+
+export type DolIndexStatus = {
+  status: string;
+  cache_dir: string;
+  active_index_ready: boolean;
+  fingerprint: string;
+  index_schema_version: number;
+  last_built_at: string;
+  last_checked_at: string;
+  expires_at: string;
+  row_count: number;
+  cache_size_bytes: number;
+  max_cache_bytes: number;
+  selected_files: DolIndexSelectedFile[];
+  warnings: string[];
+  current_job: DolIndexJob | null;
+};
+
+export type DolIndexStatusResponse = DolIndexStatus & {
+  trace_id: string;
+};
+
+export type DolIndexBuildResponse = DolIndexJob & {
+  trace_id: string;
+};
+
+export type DolIndexJobResponse = DolIndexJob & {
+  trace_id: string;
+};
+
+export type DolIndexCleanupResponse = {
+  trace_id: string;
+  deleted_files: string[];
+  freed_bytes: number;
   warnings: string[];
 };
 
@@ -477,7 +537,7 @@ export async function analyzeSponsorship(
       company_name: jobLead.company_name,
       job_url: context?.url ?? jobLead.source_url,
       application_form_text: "",
-      allow_public_lookup: false,
+      allow_public_lookup: true,
       allow_ai: options.allowAi ?? true,
       force_refresh: options.forceRefresh ?? false
     })
@@ -580,6 +640,58 @@ export async function saveAiProvider(payload: {
   return response.json() as Promise<ConfigStatusResponse>;
 }
 
+export async function getDolIndexStatus(): Promise<DolIndexStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/dol/index/status`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<DolIndexStatusResponse>;
+}
+
+export async function buildDolIndex(): Promise<DolIndexBuildResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/dol/index/build`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ force: true })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<DolIndexBuildResponse>;
+}
+
+export async function getDolIndexJob(jobId: string): Promise<DolIndexJobResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/dol/index/jobs/${encodeURIComponent(jobId)}`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<DolIndexJobResponse>;
+}
+
+export async function cleanupDolIndex(): Promise<DolIndexCleanupResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/dol/index/cleanup`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<DolIndexCleanupResponse>;
+}
+
 export async function listAiProviderProfiles(): Promise<AiProviderProfilesResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/config/ai-profiles`);
 
@@ -617,6 +729,23 @@ export async function deleteAiProviderProfile(profileId: string): Promise<Config
 
 export async function saveResumeOutputDirectory(path: string): Promise<ConfigStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/config/resume-output-directory`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ path })
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<ConfigStatusResponse>;
+}
+
+export async function saveDolCacheDirectory(path: string): Promise<ConfigStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/config/dol-cache-directory`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

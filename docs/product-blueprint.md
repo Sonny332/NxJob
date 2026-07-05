@@ -387,6 +387,21 @@ MVP 判断优先级：
 
 后续阶段，当 sponsorship 流程跑成熟后，可以把稳定规则和公开数据查询流程固化为 `analyze_sponsorship` skill / MCP tool。
 
+### DOL LCA History Scope
+
+首版 DOL LCA history 只查询 Department of Labor OFLC Performance Data 页面公开的 H-1B/H-1B1/E-3 LCA disclosure files，并把最近 3 个 fiscal years 的 employer-level 历史作为 `likely_supports` 概率证据。JD 或申请表明确支持/拒绝仍然优先；无 DOL 记录不能判定不支持。
+
+首版不纳入：
+
+- USCIS Employer Data Hub。
+- PERM / 绿卡历史。
+- 工资等级最终判定。
+- 公司官网或第三方联网搜索。
+- `visa-jobs-mcp` 运行时依赖。
+- AI 自动执行 DOL 查询。
+
+高优先级后续扩展：PERM / 绿卡历史、工资等级判定。
+
 ## Form Answer Drafting Strategy
 
 `Fill Form Answer from Master Resume Bullets` 解决的是非 Easy Apply 表单里的开放问题或半结构化问题，例如 why this company、relevant experience、work authorization explanation、project description、additional information。

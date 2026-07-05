@@ -1,16 +1,21 @@
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   activateAiProviderProfile,
+  analyzeSponsorship,
   captureJobLead,
   checkConfigStatus,
   checkHealth,
+  buildDolIndex,
+  cleanupDolIndex,
   clearAiProvider,
   createApplication,
   createOutcome,
   deleteAiProviderProfile,
   draftFormAnswer,
   draftFormAnswers,
+  getDolIndexJob,
+  getDolIndexStatus,
   getResumeArtifactUrl,
   getJobLead,
   getWorkflowResults,
@@ -22,10 +27,15 @@ import {
   saveMasterResume,
   saveResumeOutputDirectory,
   submitResumeFeedback,
+  tailorResume,
   type ApplicationMethod,
   type ApplicationRecord,
   type AiProviderProfileRecord,
   type ConfigStatusResponse,
+  type DolIndexBuildResponse,
+  type DolIndexJob,
+  type DolIndexStatus,
+  type DolIndexStatusResponse,
   type FormAnswerDraftResponse,
   type FormAnswerDraftsResponse,
   type JobLeadRecord,
@@ -54,11 +64,11 @@ import {
   type JobWorkspaceRecord,
   type WorkspaceState
 } from "../../src/lib/workspace-state";
-import type { WorkflowMessageResponse } from "../../src/lib/workflow-messages";
 
 type ServiceState = "checking" | "online" | "offline";
 type WorkflowKey = "sponsorship" | "resume" | "formAnswer";
 type TrackingStatus = "idle" | "running";
+type DolIndexAction = "idle" | "building" | "cleaning";
 type FeedbackActionRating = Exclude<ResumeFeedbackRating, "success_reference_candidate">;
 type SidePanelOutcomeType = Extract<OutcomeType, "positive_reply" | "screen" | "interview" | "rejection">;
 const FEEDBACK_ACTIONS: FeedbackActionRating[] = [
@@ -152,11 +162,13 @@ const AI_PROVIDER_PRESETS = {
 } as const;
 
 type AiProviderPresetKey = keyof typeof AI_PROVIDER_PRESETS;
+const INITIAL_WORKSPACE_STATE: WorkspaceState = { focusedJobId: "", showHidden: false, jobs: [] };
 
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
   const [config, setConfig] = useState<ConfigStatusResponse | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceState>({ focusedJobId: "", showHidden: false, jobs: [] });
+  const [workspace, setWorkspace] = useState<WorkspaceState>(INITIAL_WORKSPACE_STATE);
+  const workspaceRef = useRef<WorkspaceState>(INITIAL_WORKSPACE_STATE);
   const [pageContext, setPageContext] = useState<PageContext | null>(null);
   const [message, setMessage] = useState("Ready.");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -172,13 +184,18 @@ export function App() {
   const [outcomesByApplicationId, setOutcomesByApplicationId] = useState<Record<string, OutcomeSignalResponse>>({});
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
   const [successReferenceCount, setSuccessReferenceCount] = useState<number | null>(null);
+  const [dolIndexAction, setDolIndexAction] = useState<DolIndexAction>("idle");
+
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
 
   useEffect(() => {
     let cancelled = false;
 
     loadWorkspaceState().then((state) => {
       if (!cancelled) {
-        setWorkspace(state);
+        replaceWorkspaceState(state);
         void hydrateTrackingForJobs(state.jobs);
       }
     });
@@ -208,6 +225,12 @@ export function App() {
     }
   }, [serviceState, workspace.jobs.length]);
 
+  useEffect(() => {
+    if (settingsOpen && serviceState === "online") {
+      void refreshDolIndexStatusFromSettings();
+    }
+  }, [settingsOpen, serviceState]);
+
   const focusedJob = useMemo(
     () => visibleJobs(workspace).find((job) => job.id === workspace.focusedJobId) ?? visibleJobs(workspace)[0] ?? null,
     [workspace]
@@ -225,6 +248,95 @@ export function App() {
       setServiceState("offline");
       setMessage(error instanceof Error ? error.message : "NxJob local service is offline.");
     }
+  }
+
+  async function buildDolIndexFromSettings() {
+    if (dolIndexAction !== "idle") return;
+
+    setDolIndexAction("building");
+    try {
+      const job = await buildDolIndex();
+      updateDolIndexJob(job);
+      setMessage(job.message || "DOL index build started.");
+      if (job.job_id) {
+        await pollDolIndexJob(job.job_id);
+      }
+      const status = await getDolIndexStatus();
+      updateDolIndexStatus(status);
+      setMessage(dolIndexStatusMessage(status));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to build DOL index.");
+      await refreshDolIndexStatusSilently();
+    } finally {
+      setDolIndexAction("idle");
+    }
+  }
+
+  async function refreshDolIndexStatusSilently(): Promise<DolIndexStatusResponse | null> {
+    try {
+      const status = await getDolIndexStatus();
+      updateDolIndexStatus(status);
+      return status;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshDolIndexStatusFromSettings() {
+    try {
+      const status = await getDolIndexStatus();
+      updateDolIndexStatus(status);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to refresh DOL index status.");
+    }
+  }
+
+  async function cleanupDolIndexFromSettings() {
+    if (dolIndexAction !== "idle") return;
+
+    setDolIndexAction("cleaning");
+    try {
+      const cleanup = await cleanupDolIndex();
+      const status = await getDolIndexStatus();
+      updateDolIndexStatus(status);
+      setMessage(`Cleaned ${cleanup.deleted_files.length} stale DOL cache files; freed ${formatBytes(cleanup.freed_bytes)}.${dolWarningSuffix(cleanup.warnings, " Warnings: ")}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to clean DOL cache.");
+    } finally {
+      setDolIndexAction("idle");
+    }
+  }
+
+  async function pollDolIndexJob(jobId: string) {
+    for (let attempt = 0; attempt < 720; attempt += 1) {
+      await delay(Math.min(1000 + attempt * 500, 10000));
+      const job = await getDolIndexJob(jobId);
+      updateDolIndexJob(job);
+      if (!isActiveDolJob(job)) {
+        return;
+      }
+    }
+    const status = await getDolIndexStatus();
+    updateDolIndexStatus(status);
+    setMessage("DOL index build is still running in the background. Settings will refresh its status when reopened.");
+  }
+
+  function updateDolIndexStatus(status: DolIndexStatusResponse) {
+    setConfig((current) => (current ? { ...current, dol_index_status: status } : current));
+  }
+
+  function updateDolIndexJob(job: DolIndexBuildResponse | DolIndexJob) {
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            dol_index_status: {
+              ...current.dol_index_status,
+              current_job: job
+            }
+          }
+        : current
+    );
   }
 
   async function hydrateTrackingForJobs(jobs: JobWorkspaceRecord[]) {
@@ -295,11 +407,17 @@ export function App() {
 
       const latestWorkspace = await loadWorkspaceState();
       const nextWorkspace = upsertWorkspaceJob(latestWorkspace, hydratedRecord);
-      setWorkspace(nextWorkspace);
+      replaceWorkspaceState(nextWorkspace);
       await saveWorkspaceState(nextWorkspace);
-      if (!hydratedRecord.workflows.sponsorship.result) {
+      const sponsorshipResult = hydratedRecord.workflows.sponsorship.result;
+      if (!sponsorshipResult) {
         setMessage("Current job captured. Running local sponsorship check...");
         await runSponsorship(hydratedRecord, { allowAi: false });
+        return;
+      }
+      if (!sponsorshipResult.ai_used) {
+        setMessage("Current job captured. Refreshing local sponsorship check...");
+        await runSponsorship(hydratedRecord, { forceRefresh: true, allowAi: false });
         return;
       }
       setMessage(capture.dedupe.is_duplicate ? "Existing JobLead restored from cache." : "Current job captured.");
@@ -320,27 +438,20 @@ export function App() {
     const allowAi = options.allowAi ?? true;
     markWorkflow(job.id, "sponsorship", "running");
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "NXJOB_RUN_SPONSORSHIP",
-        jobLead: job.jobLead,
+      const result = await analyzeSponsorship(job.jobLead, null, {
         forceRefresh: options.forceRefresh ?? false,
         allowAi
-      }) as WorkflowMessageResponse;
-      const nextState = await loadWorkspaceState();
-      setWorkspace(nextState);
-      if (!response.ok) {
-        setMessage(allowAi ? response.error : `Local sponsorship check failed: ${response.error}`);
-        return;
-      }
+      });
+      const savedResult = setWorkflowResult(job.id, "sponsorship", result);
       if (!allowAi) {
-        if (response.result.ai_used) {
+        if (savedResult.ai_used) {
           setMessage("Existing AI sponsorship result kept.");
           return;
         }
-        setMessage(response.result.cache.hit ? "Local sponsorship result restored from cache." : "Local sponsorship check completed.");
+        setMessage(savedResult.cache.hit ? "Local sponsorship result restored from cache." : "Local sponsorship check completed.");
         return;
       }
-      setMessage(response.result.cache.hit ? "Sponsorship result restored from cache." : "Sponsorship analysis completed.");
+      setMessage(savedResult.cache.hit ? "Sponsorship result restored from cache." : "Sponsorship analysis completed.");
     } catch (error) {
       setWorkflowError(job.id, "sponsorship", error);
       if (!allowAi) {
@@ -368,18 +479,11 @@ export function App() {
 
     markWorkflow(job.id, "resume", "running");
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "NXJOB_RUN_TAILOR",
-        jobLead: job.jobLead,
+      const result = await tailorResume(job.jobLead, {
         forceRefresh
-      }) as WorkflowMessageResponse;
-      const nextState = await loadWorkspaceState();
-      setWorkspace(nextState);
-      if (!response.ok) {
-        setMessage(response.error);
-        return;
-      }
-      setMessage(response.result.cache.hit ? "Tailored resume restored from cache." : "Tailored resume generated.");
+      });
+      const savedResult = setWorkflowResult(job.id, "resume", result);
+      setMessage(savedResult.cache.hit ? "Tailored resume restored from cache." : "Tailored resume generated.");
     } catch (error) {
       setWorkflowError(job.id, "resume", error);
     }
@@ -594,7 +698,7 @@ export function App() {
   }
 
   function hideJob(jobId: string) {
-    setWorkspace((current) => {
+    updateWorkspaceState((current) => {
       const updated = updateWorkspaceJob(current, jobId, (job) => ({
         ...job,
         visibility: "hidden",
@@ -605,7 +709,7 @@ export function App() {
   }
 
   function restoreJob(jobId: string) {
-    setWorkspace((current) =>
+    updateWorkspaceState((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
         ...job,
         visibility: "active",
@@ -618,7 +722,7 @@ export function App() {
     try {
       const urls = await listOpenTabUrls();
       const normalizedUrls = new Set(urls.map(normalizeUrlForPresence));
-      setWorkspace((current) => ({
+      updateWorkspaceState((current) => ({
         ...current,
         jobs: current.jobs.map((job) => ({
           ...job,
@@ -640,7 +744,7 @@ export function App() {
   }
 
   function markWorkflow(jobId: string, key: WorkflowKey, status: "running") {
-    setWorkspace((current) =>
+    updateWorkspaceState((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
         ...job,
         updatedAt: new Date().toISOString(),
@@ -661,35 +765,49 @@ export function App() {
     jobId: string,
     key: "sponsorship",
     result: SponsorshipAnalyzeResponse
-  ): void;
-  function setWorkflowResult(jobId: string, key: "resume", result: ResumeTailorResponse): void;
-  function setWorkflowResult(jobId: string, key: "formAnswer", result: FormAnswerDraftResponse | FormAnswerDraftsResponse): void;
+  ): SponsorshipAnalyzeResponse;
+  function setWorkflowResult(jobId: string, key: "resume", result: ResumeTailorResponse): ResumeTailorResponse;
+  function setWorkflowResult(
+    jobId: string,
+    key: "formAnswer",
+    result: FormAnswerDraftResponse | FormAnswerDraftsResponse
+  ): FormAnswerDraftResponse | FormAnswerDraftsResponse;
   function setWorkflowResult(
     jobId: string,
     key: WorkflowKey,
     result: SponsorshipAnalyzeResponse | ResumeTailorResponse | FormAnswerDraftResponse | FormAnswerDraftsResponse
   ) {
-    setWorkspace((current) =>
+    const currentJob = workspaceRef.current.jobs.find((job) => job.id === jobId) ?? null;
+    const resultToSave =
+      key === "sponsorship"
+        ? resolveSponsorshipResultToSave(
+            currentJob?.workflows.sponsorship.result ?? null,
+            result as SponsorshipAnalyzeResponse
+          )
+        : result;
+
+    updateWorkspaceState((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
-        ...job,
-        updatedAt: new Date().toISOString(),
-        workflows: {
-          ...job.workflows,
-          [key]: {
-            status: "completed",
-            updatedAt: new Date().toISOString(),
-            traceId: result.trace_id,
-            result,
-            error: ""
+          ...job,
+          updatedAt: new Date().toISOString(),
+          workflows: {
+            ...job.workflows,
+            [key]: {
+              status: "completed",
+              updatedAt: new Date().toISOString(),
+              traceId: resultToSave.trace_id,
+              result: resultToSave,
+              error: ""
+            }
           }
-        }
-      }))
+        }))
     );
+    return resultToSave;
   }
 
   function setWorkflowError(jobId: string, key: WorkflowKey, error: unknown) {
     const messageText = error instanceof Error ? error.message : "Workflow failed.";
-    setWorkspace((current) =>
+    updateWorkspaceState((current) =>
       updateWorkspaceJob(current, jobId, (job) => ({
         ...job,
         updatedAt: new Date().toISOString(),
@@ -705,6 +823,16 @@ export function App() {
       }))
     );
     setMessage(messageText);
+  }
+
+  function replaceWorkspaceState(nextState: WorkspaceState): WorkspaceState {
+    workspaceRef.current = nextState;
+    setWorkspace(nextState);
+    return nextState;
+  }
+
+  function updateWorkspaceState(update: (current: WorkspaceState) => WorkspaceState): WorkspaceState {
+    return replaceWorkspaceState(update(workspaceRef.current));
   }
 
   return (
@@ -834,6 +962,14 @@ export function App() {
                 ))}
               </div>
             ) : null}
+            {config?.dol_index_status ? (
+              <DolIndexSettings
+                status={config.dol_index_status}
+                action={dolIndexAction}
+                onBuild={buildDolIndexFromSettings}
+                onCleanup={cleanupDolIndexFromSettings}
+              />
+            ) : null}
             <small>
               NxJob uses local private config first. Environment variables are only a development fallback. Keys and resume contents are not written to logs.
             </small>
@@ -860,7 +996,7 @@ export function App() {
             <button
               type="button"
               className="secondary-button"
-              onClick={() => setWorkspace((current) => ({ ...current, showHidden: !current.showHidden }))}
+              onClick={() => updateWorkspaceState((current) => ({ ...current, showHidden: !current.showHidden }))}
             >
               {workspace.showHidden ? "Show Active" : "Show Hidden"}
             </button>
@@ -871,7 +1007,7 @@ export function App() {
               key={job.id}
               type="button"
               className={job.id === focusedJob?.id ? "job-card job-card-active" : "job-card"}
-              onClick={() => setWorkspace((current) => ({ ...current, focusedJobId: job.id }))}
+              onClick={() => updateWorkspaceState((current) => ({ ...current, focusedJobId: job.id }))}
             >
               <span>{jobDisplayTitle(job.jobLead)}</span>
               <small>{jobDisplaySubtitle(job.jobLead)} · {job.selectedTextLength} selected chars</small>
@@ -914,6 +1050,78 @@ export function App() {
   );
 }
 
+function DolIndexSettings(props: {
+  status: DolIndexStatus;
+  action: DolIndexAction;
+  onBuild: () => void;
+  onCleanup: () => void;
+}) {
+  const currentJob = props.status.current_job;
+  const jobActive = Boolean(currentJob && isActiveDolJob(currentJob));
+  const busy = props.action !== "idle";
+  const disabled = busy || jobActive;
+
+  return (
+    <section className="result-block" aria-label="DOL Index">
+      <div className="result-heading">
+        <div>
+          <strong>DOL Index</strong>
+          <span>{humanizeDolStatus(props.status.status)}</span>
+        </div>
+        <span className={props.status.active_index_ready ? "setup-ok" : "setup-needed"}>
+          {props.status.active_index_ready ? "ready" : "not ready"}
+        </span>
+      </div>
+      <div className="compact-list">
+        <span>Cache dir</span>
+        <p>{props.status.cache_dir || "Not configured"}</p>
+      </div>
+      <div className="compact-list">
+        <span>Cache size</span>
+        <p>
+          {formatBytes(props.status.cache_size_bytes)} / {formatBytes(props.status.max_cache_bytes)}
+        </p>
+      </div>
+      <div className="compact-list">
+        <span>Last built</span>
+        <p>{formatDateTime(props.status.last_built_at)} · {props.status.row_count.toLocaleString()} rows</p>
+      </div>
+      <div className="compact-list">
+        <span>Selected FY files</span>
+        <p>{props.status.selected_files.map(selectedDolFileLabel).join(", ") || "None"}</p>
+      </div>
+      {props.status.warnings.length > 0 ? (
+        <div className="questions">
+          <strong>Warnings</strong>
+          <ul>
+            {props.status.warnings.map((warning) => (
+              <li key={warning}>{humanizeDolMessage(warning)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {currentJob ? (
+        <div className="compact-list">
+          <span>Current job</span>
+          <p>
+            {currentJob.status || "unknown"} · {currentJob.phase || "phase unknown"} · {currentJob.message || currentJob.error || currentJob.job_id}
+            {currentJob.progress_total > 0 ? ` · ${currentJob.progress_current}/${currentJob.progress_total}` : ""}
+          </p>
+        </div>
+      ) : null}
+      <div className="feedback-grid">
+        <button type="button" className="secondary-button" disabled={disabled} onClick={props.onBuild}>
+          {props.action === "building" || jobActive ? "Building..." : "Build / Refresh"}
+        </button>
+        <button type="button" className="secondary-button" disabled={disabled} onClick={props.onCleanup}>
+          {props.action === "cleaning" ? "Cleaning..." : "Clean stale cache"}
+        </button>
+      </div>
+      <small>DOL history lookup runs locally from the cache. Capture, sponsorship analysis, and resume work remain available while this job runs.</small>
+    </section>
+  );
+}
+
 function JobDetail(props: {
   job: JobWorkspaceRecord;
   masterResumeReady: boolean;
@@ -938,7 +1146,7 @@ function JobDetail(props: {
   const sponsorship = job.workflows.sponsorship.result;
   const resume = job.workflows.resume.result;
   const formAnswer = job.workflows.formAnswer.result;
-  const canRunAiSponsorship = !sponsorship || isAmbiguousSponsorshipStatus(sponsorship.sponsorship.status);
+  const canRunAiSponsorship = canRunAiSponsorshipReview(sponsorship);
 
   return (
     <article className="detail-card">
@@ -1085,6 +1293,8 @@ function FormAnswerResult(props: {
 }
 
 function SponsorshipResult({ result }: { result: SponsorshipAnalyzeResponse }) {
+  const hasDolHistory = result.evidence.some((item) => item.source === "dol_lca_history");
+
   return (
     <section className="result-block">
       <div className="result-heading">
@@ -1098,8 +1308,8 @@ function SponsorshipResult({ result }: { result: SponsorshipAnalyzeResponse }) {
       </div>
       <p>{result.sponsorship.summary}</p>
       <small>
-        {result.ai_used ? "AI fallback" : "Local rule"} · {result.cache.hit ? "Cache hit" : "Fresh result"} · Not a legal
-        conclusion
+        {result.ai_used ? "AI fallback" : "Local rule"} · {hasDolHistory ? "DOL history" : "JD evidence"} ·{" "}
+        {result.cache.hit ? "Cache hit" : "Fresh result"} · Not a legal conclusion
       </small>
       <div className="evidence-list">
         <strong>Evidence</strong>
@@ -1110,6 +1320,16 @@ function SponsorshipResult({ result }: { result: SponsorshipAnalyzeResponse }) {
           </article>
         ))}
       </div>
+      {result.sponsorship.risk_flags.length > 0 ? (
+        <div className="questions">
+          <strong>Notes</strong>
+          <ul>
+            {result.sponsorship.risk_flags.map((flag) => (
+              <li key={flag}>{humanizeSponsorshipNote(flag)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {result.sponsorship.questions_to_confirm.length > 0 ? (
         <div className="questions">
           <strong>Confirm</strong>
@@ -1385,6 +1605,18 @@ function isAmbiguousSponsorshipStatus(status: SponsorshipStatus): boolean {
   return status === "needs_confirmation" || status === "unknown";
 }
 
+function canRunAiSponsorshipReview(result: SponsorshipAnalyzeResponse | null): boolean {
+  return !result || isAmbiguousSponsorshipStatus(result.sponsorship.status) || isDolOnlyLikelySupport(result);
+}
+
+function isDolOnlyLikelySupport(result: SponsorshipAnalyzeResponse): boolean {
+  return (
+    result.sponsorship.status === "likely_supports" &&
+    !result.ai_used &&
+    result.evidence.some((item) => item.source === "dol_lca_history")
+  );
+}
+
 function inferApplicationMethod(job: JobWorkspaceRecord): ApplicationMethod {
   if (job.jobLead.source_site === "company_ats") return "company_ats";
   return "manual";
@@ -1428,4 +1660,90 @@ async function copyText(value: string) {
   } catch {
     // The visible link/path remains available when clipboard permission is unavailable.
   }
+}
+
+function isActiveDolJob(job: DolIndexJob): boolean {
+  return job.status === "queued" || job.status === "running";
+}
+
+function dolIndexStatusMessage(status: DolIndexStatus): string {
+  return `DOL index ${humanizeDolStatus(status.status)}: ${status.row_count.toLocaleString()} rows.${dolWarningSuffix(status.warnings, " ")}`;
+}
+
+function humanizeDolStatus(status: string): string {
+  const labels: Record<string, string> = {
+    ready: "Ready",
+    not_built: "Not built",
+    refresh_required: "Refresh required",
+    expired: "Expired",
+    failed_verification: "Failed verification",
+    building: "Building"
+  };
+  return labels[status] ?? status.replace(/_/g, " ");
+}
+
+function humanizeSponsorshipNote(note: string): string {
+  if (note.startsWith("dol_lca_") || note === "cache_expired_network_failed") {
+    return humanizeDolMessage(note);
+  }
+  return note;
+}
+
+function dolWarningSuffix(warnings: string[], prefix: string): string {
+  return warnings.length > 0 ? `${prefix}${warnings.map(humanizeDolMessage).join(" ")}` : "";
+}
+
+function humanizeDolMessage(warning: string): string {
+  const labels: Record<string, string> = {
+    dol_lca_index_not_ready: "DOL index is not ready. Build it in Settings to enable employer history lookup.",
+    dol_lca_index_building: "DOL index is currently building. Employer history lookup will be available when it finishes.",
+    dol_lca_index_refresh_required: "DOL index has newer source files available. Refresh it in Settings.",
+    dol_lca_index_expired: "DOL index is expired. Refresh it in Settings before relying on employer history.",
+    dol_lca_index_failed_verification: "DOL index failed verification. Rebuild it in Settings.",
+    cache_expired_network_failed: "DOL cache is expired and the network refresh failed. Refresh it in Settings when the network is available."
+  };
+  if (warning.startsWith("skip_outside_cache:")) {
+    return "Skipped a file outside the configured DOL cache directory.";
+  }
+  return labels[warning] ?? warning.replace(/_/g, " ");
+}
+
+function selectedDolFileLabel(file: DolIndexStatus["selected_files"][number]): string {
+  const quarter = file.quarter ? ` Q${file.quarter}` : "";
+  const size = file.size_bytes > 0 ? ` (${formatBytes(file.size_bytes)})` : "";
+  return `FY${file.fy}${quarter}${size}`;
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const digits = unitIndex === 0 || size >= 10 ? 0 : 1;
+  return `${size.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatDateTime(value: string): string {
+  if (!value) return "Never";
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Date(timestamp).toLocaleString();
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function resolveSponsorshipResultToSave(
+  existingResult: SponsorshipAnalyzeResponse | null,
+  incomingResult: SponsorshipAnalyzeResponse
+): SponsorshipAnalyzeResponse {
+  if (!incomingResult.ai_used && existingResult?.ai_used) {
+    return existingResult;
+  }
+  return incomingResult;
 }

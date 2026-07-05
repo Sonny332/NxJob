@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nxjob.ai.openai_compatible import AiProviderError, request_json_object
+from nxjob.data.dol_lca_history import DolHistoryResult
 from nxjob.schemas.core import (
     SponsorshipAnalyzeRequest,
     SponsorshipAnalyzeResponse,
@@ -116,18 +117,18 @@ LIKELY_NEGATIVE_RULES = [
             r"\b(authorized\s+to\s+work|work\s+authorization).{0,120}\bwithout\s+(?:requiring\s+)?(?:visa\s+)?sponsorship\b.{0,80}\b(now\s+or\s+in\s+the\s+future)\b",
             re.IGNORECASE | re.DOTALL,
         ),
-        "likely_not_supports",
-        0.86,
-        "The posting appears to screen out candidates who need sponsorship now or in the future.",
+        "does_not_support",
+        0.91,
+        "The posting screens out candidates who need sponsorship now or in the future.",
     ),
     Rule(
         re.compile(
             r"\b(without\s+(?:visa\s+)?sponsorship).{0,80}\b(now\s+or\s+in\s+the\s+future)\b",
             re.IGNORECASE | re.DOTALL,
         ),
-        "likely_not_supports",
-        0.84,
-        "The wording suggests candidates needing sponsorship may be filtered out.",
+        "does_not_support",
+        0.9,
+        "The posting requires work authorization without sponsorship now or in the future.",
     ),
     Rule(
         re.compile(
@@ -247,6 +248,94 @@ def add_ai_unavailable_evidence(
             "ai_used": False,
         }
     )
+
+
+def add_dol_lca_history_evidence(
+    baseline: SponsorshipAnalyzeResponse,
+    history: DolHistoryResult,
+) -> SponsorshipAnalyzeResponse:
+    if baseline.sponsorship.status in {"supports", "does_not_support", "likely_not_supports"}:
+        return baseline
+
+    risk_flags = [*baseline.sponsorship.risk_flags]
+    for warning in history.warnings:
+        if warning not in risk_flags:
+            risk_flags.append(warning)
+
+    if history.match_count <= 0:
+        if _dol_history_unavailable(history):
+            return baseline.model_copy(
+                update={"sponsorship": baseline.sponsorship.model_copy(update={"risk_flags": risk_flags})}
+            )
+        no_record_flag = "DOL LCA history found no matching employer records; this does not prove non-support."
+        if no_record_flag not in risk_flags:
+            risk_flags.append(no_record_flag)
+        return baseline.model_copy(
+            update={"sponsorship": baseline.sponsorship.model_copy(update={"risk_flags": risk_flags})}
+        )
+
+    sample = history.evidence[0] if history.evidence else {}
+    evidence = [
+        *baseline.evidence,
+        SponsorshipEvidenceItem(
+            source="dol_lca_history",
+            evidence_text=(
+                f"dol_lca_match_count={history.match_count}; "
+                f"recent_certified_count={history.recent_certified_count}; "
+                f"matched_employer={sample.get('employer_name', '')}; "
+                f"title={sample.get('job_title', '')}; "
+                f"soc={sample.get('soc_code', '')}; "
+                f"worksite={sample.get('worksite', '')}; "
+                f"status={sample.get('case_status', '')}; "
+                f"decision_date={sample.get('decision_date', '')}"
+            ),
+            evidence_url="https://www.dol.gov/agencies/eta/foreign-labor/performance",
+            confidence=0.72 if history.recent_certified_count > 0 else 0.58,
+        ),
+    ]
+
+    if history.recent_certified_count > 0 and baseline.sponsorship.status in {"unknown", "needs_confirmation"}:
+        return baseline.model_copy(
+            update={
+                "sponsorship": baseline.sponsorship.model_copy(
+                    update={
+                        "status": "likely_supports",
+                        "confidence": max(baseline.sponsorship.confidence, 0.72),
+                        "summary": (
+                            "DOL LCA history suggests this employer has recent certified H-1B/LCA activity "
+                            f"(dol_lca_match_count={history.match_count}; "
+                            f"recent_certified_count={history.recent_certified_count})."
+                        ),
+                        "risk_flags": risk_flags,
+                        "questions_to_confirm": [
+                            "Does this specific role and location support sponsorship now or in the future?"
+                        ],
+                    }
+                ),
+                "evidence": evidence,
+            }
+        )
+
+    return baseline.model_copy(
+        update={
+            "sponsorship": baseline.sponsorship.model_copy(update={"risk_flags": risk_flags}),
+            "evidence": evidence,
+        }
+    )
+
+
+def _dol_history_unavailable(history: DolHistoryResult) -> bool:
+    unavailable_warnings = {
+        "cache_expired_network_failed",
+        "dol_lca_cache_refresh_required",
+        "dol_lca_employer_name_missing",
+        "dol_lca_index_not_ready",
+        "dol_lca_index_refresh_required",
+        "dol_lca_index_expired",
+        "dol_lca_index_failed_verification",
+        "dol_lca_index_building",
+    }
+    return any(warning in unavailable_warnings for warning in history.warnings)
 
 
 def _first_match(
@@ -374,9 +463,9 @@ def _ai_messages(
         },
         "status_guidance": {
             "supports": "Use only when this role or supplied official text explicitly says sponsorship is available.",
-            "does_not_support": "Use when this role explicitly says sponsorship is not available or not eligible.",
+            "does_not_support": "Use when this role makes a role-specific explicit rejection, says the role is not eligible, or uses hard screening wording like authorized to work without sponsorship now or in the future.",
             "likely_supports": "Use for weaker positive evidence such as supplied employer history without role-specific confirmation.",
-            "likely_not_supports": "Use for strong screening wording such as authorized without sponsorship now or in the future.",
+            "likely_not_supports": "Use for weaker screening or negative evidence that does not explicitly exclude sponsorship now or in the future.",
             "needs_confirmation": "Use for generic work authorization language or mixed evidence.",
             "unknown": "Use when sponsorship evidence is absent.",
         },
@@ -410,7 +499,7 @@ def _response_from_ai_payload(
     confidence = _confidence(payload.get("confidence"), baseline.sponsorship.confidence)
     summary = str(payload.get("summary", "")).strip() or baseline.sponsorship.summary
     evidence_text = str(payload.get("evidence", "")).strip() or "AI inferred sponsorship likelihood from the supplied JD."
-    risk_flags = _string_list(payload.get("risk_flags"))
+    risk_flags = _merge_risk_flags(baseline.sponsorship.risk_flags, _string_list(payload.get("risk_flags")))
     questions = _string_list(payload.get("questions_to_confirm"))
     if not questions and status in {"likely_not_supports", "needs_confirmation", "unknown"}:
         questions = [
@@ -454,6 +543,15 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _merge_risk_flags(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    for group in groups:
+        for item in group:
+            if item and item not in merged:
+                merged.append(item)
+    return merged
 
 
 def _compact_json(value: object) -> str:

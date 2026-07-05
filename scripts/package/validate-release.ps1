@@ -11,6 +11,7 @@ if (-not $ArtifactsDir) {
   $ArtifactsDir = Join-Path $root "releases\$Version"
 }
 $ArtifactsDir = [System.IO.Path]::GetFullPath($ArtifactsDir)
+. (Join-Path $PSScriptRoot "release-version.ps1")
 
 function Assert-Exists {
   param([Parameter(Mandatory = $true)][string]$Path)
@@ -19,15 +20,80 @@ function Assert-Exists {
   }
 }
 
-function Get-ZipEntries {
-  param([Parameter(Mandatory = $true)][string]$ZipPath)
+function Use-ZipArchive {
+  param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [Parameter(Mandatory = $true)][scriptblock]$Action
+  )
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
   try {
-    return @($archive.Entries | ForEach-Object { $_.FullName.Replace("\", "/") })
+    return & $Action $archive
   }
   finally {
     $archive.Dispose()
+  }
+}
+
+function Get-ZipEntries {
+  param([Parameter(Mandatory = $true)][string]$ZipPath)
+  return @(Use-ZipArchive -ZipPath $ZipPath -Action { param($archive) $archive.Entries | ForEach-Object { $_.FullName.Replace("\", "/") } })
+}
+
+function Get-ZipEntryText {
+  param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [Parameter(Mandatory = $true)][string]$EntryName
+  )
+  return Use-ZipArchive -ZipPath $ZipPath -Action {
+    param($archive)
+    $normalizedEntryName = $EntryName.Replace("\", "/")
+    $entry = $archive.Entries | Where-Object { $_.FullName.Replace("\", "/") -eq $normalizedEntryName } | Select-Object -First 1
+    if ($null -eq $entry) {
+      throw "Zip is missing required entry: $EntryName"
+    }
+    $stream = $entry.Open()
+    try {
+      $reader = [System.IO.StreamReader]::new($stream)
+      try {
+        return $reader.ReadToEnd()
+      }
+      finally {
+        $reader.Dispose()
+      }
+    }
+    finally {
+      $stream.Dispose()
+    }
+  }
+}
+
+function Get-ZipEntryBytes {
+  param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [Parameter(Mandatory = $true)][string]$EntryName
+  )
+  return Use-ZipArchive -ZipPath $ZipPath -Action {
+    param($archive)
+    $normalizedEntryName = $EntryName.Replace("\", "/")
+    $entry = $archive.Entries | Where-Object { $_.FullName.Replace("\", "/") -eq $normalizedEntryName } | Select-Object -First 1
+    if ($null -eq $entry) {
+      throw "Zip is missing required entry: $EntryName"
+    }
+    $stream = $entry.Open()
+    try {
+      $memory = [System.IO.MemoryStream]::new()
+      try {
+        $stream.CopyTo($memory)
+        return $memory.ToArray()
+      }
+      finally {
+        $memory.Dispose()
+      }
+    }
+    finally {
+      $stream.Dispose()
+    }
   }
 }
 
@@ -54,6 +120,39 @@ function Assert-ZipExcludes {
         throw "Zip contains forbidden entry '$entry' matching '$pattern'"
       }
     }
+  }
+}
+
+function Assert-LocalServiceVersion {
+  param(
+    [Parameter(Mandatory = $true)][string]$ZipPath,
+    [Parameter(Mandatory = $true)][string]$ReleaseVersion
+  )
+
+  $expectedPackageVersion = Convert-ReleaseVersionToPythonPackageVersion -ReleaseVersion $ReleaseVersion
+  $versionText = (Get-ZipEntryText -ZipPath $ZipPath -EntryName "VERSION").Trim()
+  if ($versionText -ne $ReleaseVersion) {
+    throw "Local service VERSION '$versionText' does not match release version '$ReleaseVersion'."
+  }
+
+  $pyproject = Get-ZipEntryText -ZipPath $ZipPath -EntryName "app/local-service/pyproject.toml"
+  $pyprojectBytes = Get-ZipEntryBytes -ZipPath $ZipPath -EntryName "app/local-service/pyproject.toml"
+  if ($pyprojectBytes.Length -ge 3 -and $pyprojectBytes[0] -eq 0xEF -and $pyprojectBytes[1] -eq 0xBB -and $pyprojectBytes[2] -eq 0xBF) {
+    throw "Local service pyproject.toml must be UTF-8 without BOM; pip/tomllib rejects BOM-prefixed TOML."
+  }
+  if ($pyproject -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+    throw "Local service pyproject.toml is missing project version."
+  }
+  if ($Matches[1] -ne $expectedPackageVersion) {
+    throw "Local service pyproject.toml version '$($Matches[1])' does not match expected package version '$expectedPackageVersion'."
+  }
+
+  $init = Get-ZipEntryText -ZipPath $ZipPath -EntryName "app/local-service/src/nxjob/__init__.py"
+  if ($init -notmatch '(?m)^__version__\s*=\s*"([^"]+)"') {
+    throw "Local service nxjob.__version__ is missing."
+  }
+  if ($Matches[1] -ne $expectedPackageVersion) {
+    throw "Local service nxjob.__version__ '$($Matches[1])' does not match expected package version '$expectedPackageVersion'."
   }
 }
 
@@ -115,6 +214,7 @@ Assert-ZipExcludes -Entries $localEntries -ForbiddenPatterns @(
   "__pycache__/*",
   "*/__pycache__/*"
 )
+Assert-LocalServiceVersion -ZipPath $localServiceZip -ReleaseVersion $Version
 
 $extensionEntries = Get-ZipEntries -ZipPath $extensionZip
 Assert-ZipContains -Entries $extensionEntries -Required @(
@@ -133,6 +233,18 @@ Assert-ZipExcludes -Entries $extensionEntries -ForbiddenPatterns @(
   "*/node_modules/*",
   "*.map"
 )
+$extensionManifest = Get-ZipEntryText -ZipPath $extensionZip -EntryName "manifest.json" | ConvertFrom-Json
+if ($Version -match "^(?<numeric>\d+\.\d+\.\d+(?:\.\d+)?)") {
+  if ($extensionManifest.version -ne $Matches.numeric) {
+    throw "Extension manifest version '$($extensionManifest.version)' does not match expected Chrome version '$($Matches.numeric)'."
+  }
+}
+else {
+  throw "Release version '$Version' does not start with a Chrome extension compatible numeric version."
+}
+if ($extensionManifest.version_name -ne $Version) {
+  throw "Extension manifest version_name '$($extensionManifest.version_name)' does not match release version '$Version'."
+}
 
 $bundleEntries = Get-ZipEntries -ZipPath $bundleZip
 Assert-ZipContains -Entries $bundleEntries -Required @(
@@ -164,5 +276,6 @@ Assert-ZipExcludes -Entries $bundleEntries -ForbiddenPatterns @(
   "__pycache__/*",
   "*/__pycache__/*"
 )
+Assert-LocalServiceVersion -ZipPath $bundleZip -ReleaseVersion $Version
 
 Write-Host "Release validation passed for $Version"

@@ -68,11 +68,11 @@ npm run extension:build
 Build MVP release artifacts:
 
 ```powershell
-.\scripts\package\build-release.ps1 -Version 0.6.1
+.\scripts\package\build-release.ps1 -Version <version>
 ```
 
 Validate existing release artifacts:
 
 ```powershell
-.\scripts\package\validate-release.ps1 -Version 0.6.1
+.\scripts\package\validate-release.ps1 -Version <version>
 ```

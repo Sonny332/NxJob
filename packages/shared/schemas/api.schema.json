@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "schemaVersion": {
-      "const": "0.4.1"
+      "const": "0.4.3"
     },
     "sponsorshipStatus": {
       "enum": [
@@ -384,6 +384,215 @@
       },
       "additionalProperties": false
     },
+    "dolIndexSelectedFile": {
+      "type": "object",
+      "required": ["fy", "quarter", "url", "path", "size_bytes"],
+      "properties": {
+        "fy": { "type": "integer", "default": 0 },
+        "quarter": { "type": ["integer", "null"], "default": null },
+        "url": { "type": "string", "default": "" },
+        "path": { "type": "string", "default": "" },
+        "size_bytes": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "additionalProperties": false
+    },
+    "dolIndexJob": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "status",
+        "phase",
+        "message",
+        "error",
+        "started_at",
+        "completed_at",
+        "progress_current",
+        "progress_total"
+      ],
+      "properties": {
+        "job_id": { "type": "string", "default": "" },
+        "status": { "type": "string", "default": "" },
+        "phase": { "type": "string", "default": "" },
+        "message": { "type": "string", "default": "" },
+        "error": { "type": "string", "default": "" },
+        "started_at": { "type": "string", "default": "" },
+        "completed_at": { "type": "string", "default": "" },
+        "progress_current": { "type": "integer", "minimum": 0, "default": 0 },
+        "progress_total": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "unevaluatedProperties": false
+    },
+    "dolIndexStatus": {
+      "type": "object",
+      "required": [
+        "status",
+        "cache_dir",
+        "active_index_ready",
+        "fingerprint",
+        "index_schema_version",
+        "last_built_at",
+        "last_checked_at",
+        "expires_at",
+        "row_count",
+        "cache_size_bytes",
+        "max_cache_bytes",
+        "selected_files",
+        "warnings",
+        "current_job"
+      ],
+      "properties": {
+        "status": { "type": "string", "default": "not_built" },
+        "cache_dir": { "type": "string", "default": "" },
+        "active_index_ready": { "type": "boolean", "default": false },
+        "fingerprint": { "type": "string", "default": "unavailable" },
+        "index_schema_version": { "type": "integer", "default": 1 },
+        "last_built_at": { "type": "string", "default": "" },
+        "last_checked_at": { "type": "string", "default": "" },
+        "expires_at": { "type": "string", "default": "" },
+        "row_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "cache_size_bytes": { "type": "integer", "minimum": 0, "default": 0 },
+        "max_cache_bytes": { "type": "integer", "minimum": 0, "default": 2147483648 },
+        "selected_files": {
+          "type": "array",
+          "items": { "$ref": "#/properties/dolIndexSelectedFile" }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "current_job": {
+          "default": null,
+          "anyOf": [
+            { "$ref": "#/properties/dolIndexJob" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "dolIndexStatusResponse": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "status",
+        "cache_dir",
+        "active_index_ready",
+        "fingerprint",
+        "index_schema_version",
+        "last_built_at",
+        "last_checked_at",
+        "expires_at",
+        "row_count",
+        "cache_size_bytes",
+        "max_cache_bytes",
+        "selected_files",
+        "warnings",
+        "current_job"
+      ],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "status": { "type": "string", "default": "not_built" },
+        "cache_dir": { "type": "string", "default": "" },
+        "active_index_ready": { "type": "boolean", "default": false },
+        "fingerprint": { "type": "string", "default": "unavailable" },
+        "index_schema_version": { "type": "integer", "default": 1 },
+        "last_built_at": { "type": "string", "default": "" },
+        "last_checked_at": { "type": "string", "default": "" },
+        "expires_at": { "type": "string", "default": "" },
+        "row_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "cache_size_bytes": { "type": "integer", "minimum": 0, "default": 0 },
+        "max_cache_bytes": { "type": "integer", "minimum": 0, "default": 2147483648 },
+        "selected_files": {
+          "type": "array",
+          "items": { "$ref": "#/properties/dolIndexSelectedFile" }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "current_job": {
+          "default": null,
+          "anyOf": [
+            { "$ref": "#/properties/dolIndexJob" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "dolIndexBuildRequest": {
+      "type": "object",
+      "properties": {
+        "force": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "dolIndexBuildResponse": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "job_id",
+        "status",
+        "phase",
+        "message",
+        "error",
+        "started_at",
+        "completed_at",
+        "progress_current",
+        "progress_total"
+      ],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "job_id": { "type": "string", "default": "" },
+        "status": { "type": "string", "default": "" },
+        "phase": { "type": "string", "default": "" },
+        "message": { "type": "string", "default": "" },
+        "error": { "type": "string", "default": "" },
+        "started_at": { "type": "string", "default": "" },
+        "completed_at": { "type": "string", "default": "" },
+        "progress_current": { "type": "integer", "minimum": 0, "default": 0 },
+        "progress_total": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "additionalProperties": false
+    },
+    "dolIndexJobResponse": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "job_id",
+        "status",
+        "phase",
+        "message",
+        "error",
+        "started_at",
+        "completed_at",
+        "progress_current",
+        "progress_total"
+      ],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "job_id": { "type": "string", "default": "" },
+        "status": { "type": "string", "default": "" },
+        "phase": { "type": "string", "default": "" },
+        "message": { "type": "string", "default": "" },
+        "error": { "type": "string", "default": "" },
+        "started_at": { "type": "string", "default": "" },
+        "completed_at": { "type": "string", "default": "" },
+        "progress_current": { "type": "integer", "minimum": 0, "default": 0 },
+        "progress_total": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "additionalProperties": false
+    },
+    "dolIndexCleanupRequest": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "dolIndexCleanupResponse": {
+      "type": "object",
+      "required": ["trace_id", "deleted_files", "freed_bytes", "warnings"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "deleted_files": { "type": "array", "items": { "type": "string" } },
+        "freed_bytes": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "configStatusResponse": {
       "type": "object",
       "required": [
@@ -397,7 +606,13 @@
           "ai_profile_id",
           "ai_profile_display_name",
           "ai_provider_source",
+          "resume_output_dir_configured",
+          "resume_output_dir",
+          "dol_cache_dir_configured",
+          "dol_cache_dir_source",
+          "dol_cache_dir",
           "public_lookup_available",
+          "dol_index_status",
           "warnings"
       ],
       "properties": {
@@ -411,7 +626,13 @@
           "ai_profile_id": { "type": "string" },
           "ai_profile_display_name": { "type": "string" },
           "ai_provider_source": { "type": "string" },
+          "resume_output_dir_configured": { "type": "boolean" },
+          "resume_output_dir": { "type": "string" },
+          "dol_cache_dir_configured": { "type": "boolean" },
+          "dol_cache_dir_source": { "type": "string" },
+          "dol_cache_dir": { "type": "string" },
           "public_lookup_available": { "type": "boolean" },
+          "dol_index_status": { "$ref": "#/properties/dolIndexStatus" },
         "warnings": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false

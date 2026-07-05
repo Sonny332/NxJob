@@ -136,6 +136,12 @@ try {
     Copy-Item -LiteralPath $recordPath -Destination (Join-Path $bundleStage "release-test-record-$Version.md") -Force
     Compress-Archive -Path (Join-Path $bundleStage "*") -DestinationPath $bundleZip -Force
   }
+  try {
+    Remove-Item -LiteralPath $bundleStage -Recurse -Force
+  }
+  catch {
+    Write-Warning "Could not remove release bundle staging directory '$bundleStage'. $($_.Exception.Message)"
+  }
   Write-Host "Release artifacts written to $artifactsDir"
 }
 finally {

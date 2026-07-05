@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from nxjob.schemas.core import (
     AiProviderConfigUpdate,
     AiProviderProfileRecord,
+    DolCacheDirectoryUpdate,
     MasterResumeProfile,
     ResumeOutputDirectoryUpdate,
 )
@@ -21,6 +22,7 @@ PRIVATE_DIR_NAME = "private"
 MASTER_RESUME_FILE = "master-resume.json"
 AI_PROVIDER_FILE = "ai-provider.json"
 RESUME_OUTPUT_FILE = "resume-output.json"
+DOL_CACHE_FILE = "dol-cache.json"
 
 
 class PrivateConfigError(RuntimeError):
@@ -52,6 +54,10 @@ def private_ai_provider_path() -> Path:
 
 def private_resume_output_path() -> Path:
     return private_config_dir() / RESUME_OUTPUT_FILE
+
+
+def private_dol_cache_path() -> Path:
+    return private_config_dir() / DOL_CACHE_FILE
 
 
 def configured_master_resume_path() -> Path | None:
@@ -372,6 +378,89 @@ def save_resume_output_dir(payload: ResumeOutputDirectoryUpdate) -> Path:
     return path
 
 
+def configured_dol_cache_dir() -> Path:
+    configured = os.environ.get("NXJOB_DOL_CACHE_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    path = private_dol_cache_path()
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        configured_path = str(data.get("path", "")).strip() if isinstance(data, dict) else ""
+        if configured_path:
+            return Path(configured_path).expanduser()
+
+    return app_data_dir() / "cache" / "dol-lca"
+
+
+def read_dol_cache_status() -> tuple[bool, str, str]:
+    configured = os.environ.get("NXJOB_DOL_CACHE_DIR")
+    if configured:
+        return True, "environment", str(Path(configured).expanduser())
+
+    path = private_dol_cache_path()
+    if path.exists():
+        return True, "private_config", str(configured_dol_cache_dir())
+
+    return False, "default", str(configured_dol_cache_dir())
+
+
+def read_dol_max_cache_bytes() -> int:
+    configured = os.environ.get("NXJOB_DOL_MAX_CACHE_BYTES")
+    if configured:
+        return _parse_positive_int(configured, 2 * 1024 * 1024 * 1024)
+
+    path = private_dol_cache_path()
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        if isinstance(data, dict) and data.get("max_cache_bytes") is not None:
+            return _parse_positive_int(str(data.get("max_cache_bytes")), 2 * 1024 * 1024 * 1024)
+
+    return 2 * 1024 * 1024 * 1024
+
+
+def save_dol_cache_dir(payload: DolCacheDirectoryUpdate) -> Path:
+    raw_path = payload.path.strip()
+    if not raw_path:
+        raise PrivateConfigError("DOL cache folder is required.")
+
+    path = Path(raw_path).expanduser()
+    _validate_dol_cache_path(path)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".nxjob-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise PrivateConfigError(f"DOL cache folder is not writable: {path}") from exc
+
+    config_path = private_dol_cache_path()
+    _ensure_private_dir(config_path.parent)
+    data: dict[str, object] = {"path": str(path)}
+    if payload.max_cache_bytes is not None:
+        data["max_cache_bytes"] = payload.max_cache_bytes
+    elif config_path.exists():
+        existing = _read_private_json(config_path)
+        if existing.get("max_cache_bytes") is not None:
+            data["max_cache_bytes"] = existing["max_cache_bytes"]
+    _write_private_json(config_path, data)
+    return path
+
+
+def _validate_dol_cache_path(path: Path) -> None:
+    parts = {part.lower() for part in path.parts}
+    if "extension" in parts or "localservice" in parts:
+        raise PrivateConfigError("DOL cache folder cannot be inside extension or LocalService install directories.")
+
+
 def _ensure_private_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
@@ -380,6 +469,23 @@ def _write_private_json(path: Path, data: dict[str, object]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     if os.name != "nt":
         path.chmod(0o600)
+
+
+def _read_private_json(path: Path) -> dict[str, object]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _parse_positive_int(value: str, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _normalize_provider(provider: str) -> str:

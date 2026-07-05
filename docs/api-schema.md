@@ -133,9 +133,9 @@ Response:
 
 Future MCP tool name: `analyze_sponsorship`.
 
-Purpose: analyze sponsorship support using JD rules first, then AI and public evidence only when needed.
+Purpose: analyze sponsorship support using JD rules first, then a verified local DOL LCA employer-history index, then AI only when needed.
 
-M4 implementation note: Phase 1 does not perform public web lookup yet. `allow_public_lookup` is accepted for MCP-compatible shape, but the local service ignores it until a later milestone. If local rules cannot decide and `allow_ai` is true, M4 uses a deterministic AI-fallback stub so the workflow, UI, trace, and evidence contracts are testable before a real provider is wired.
+Implementation note: `Capture Current Tab` and `Analyze Sponsorship` never download DOL files or build the DOL index inline. When `allow_public_lookup` is true, the workflow reads only the active verified sqlite index managed by the DOL Index Manager. JD or application-form explicit support/rejection remains the highest-priority signal. If local rules and DOL history cannot decide and `allow_ai` is true, NxJob may use the configured AI provider.
 
 Request:
 
@@ -156,6 +156,12 @@ Rules:
 - `job_lead_id` is required.
 - If `jd_text` is empty, the local service reads `JobLead.jd_text`.
 - Explicit sponsorship / no-sponsorship wording is handled locally and must return `ai_used: false`.
+- `without sponsorship now or in the future` style hard screening is treated as `does_not_support`.
+- Generic `authorized to work in the United States` wording remains `needs_confirmation`.
+- DOL LCA history can promote `unknown` or `needs_confirmation` to `likely_supports` when recent certified matches exist.
+- DOL LCA history cannot override JD or application-form explicit rejection, and no DOL records cannot prove non-support.
+- Workflow cache keys include the JD hash, application form text, AI provider identity when used, DOL dataset fingerprint/schema version, DOL cache warning status, and the normalized effective employer used for DOL lookup.
+- If the DOL index is missing, expired, refresh-required, or fails verification, sponsorship analysis must not reuse an older DOL-backed result; the response should include a DOL index warning such as `dol_lca_index_not_ready`, `dol_lca_index_expired`, `dol_lca_index_refresh_required`, or `dol_lca_index_failed_verification`.
 - Ambiguous wording may return `ai_used: true` when `allow_ai` is true.
 - Every response must save workflow trace and sponsorship evidence.
 - `is_legal_conclusion` must always be `false`.
@@ -175,10 +181,10 @@ Response:
   },
   "evidence": [
     {
-      "source": "jd_text",
-      "evidence_text": "string",
-      "evidence_url": "string",
-      "confidence": 0.8
+      "source": "dol_lca_history",
+      "evidence_text": "dol_lca_match_count=7; recent_certified_count=3; matched_employer=Example Inc; title=Software Engineer; soc=15-1252; worksite=Seattle, WA; status=Certified; decision_date=2026-02-15",
+      "evidence_url": "https://www.dol.gov/agencies/eta/foreign-labor/performance",
+      "confidence": 0.72
     }
   ],
   "ai_used": false
@@ -284,6 +290,10 @@ Response includes:
   "ai_reasoning_effort": "high",
   "resume_output_dir_configured": true,
   "resume_output_dir": "D:\\Resume\\NxJob Generated",
+  "dol_cache_dir_configured": true,
+  "dol_cache_dir_source": "private_config",
+  "dol_cache_dir": "D:\\NxJob\\cache\\dol-lca",
+  "public_lookup_available": true,
   "warnings": []
 }
 ```
@@ -316,6 +326,73 @@ Rules:
 
 - The local service validates that the folder can be created and written.
 - The configured path is stored in private local config and must not be committed, logged, or packaged.
+
+### POST /api/v1/config/dol-cache-directory
+
+Purpose: save the private local folder used for DOL LCA disclosure cache and sqlite indexes.
+
+Request:
+
+```json
+{
+  "path": "D:\\NxJob\\cache\\dol-lca",
+  "max_cache_bytes": 2147483648
+}
+```
+
+Rules:
+
+- `NXJOB_DOL_CACHE_DIR` environment variable takes precedence when set.
+- If no environment path or private config path exists, the default is `%LOCALAPPDATA%\NxJob\cache\dol-lca` on Windows.
+- The cache directory must not be inside the browser extension folder or LocalService install directory.
+- The local service validates that the folder can be created and written.
+- The configured path is stored in private local config and must not be committed, logged, or packaged.
+- `NXJOB_DOL_MAX_CACHE_BYTES` takes precedence over private config for the cache size limit.
+
+### GET /api/v1/dol/index/status
+
+Purpose: report DOL Index Manager state without running sponsorship analysis.
+
+Rules:
+
+- Returns cache path, readiness status, active fingerprint, selected FY files, row count, cache size, max size, warnings, and current build job if one is active.
+- The status endpoint may perform a lightweight official DOL URL check based on the local status-check TTL. It must not download disclosure datasets or build the sqlite index.
+
+### POST /api/v1/dol/index/build
+
+Purpose: start a DOL index build or refresh.
+
+Request:
+
+```json
+{
+  "force": true
+}
+```
+
+Rules:
+
+- `force` defaults to `false` when omitted.
+- Only one build job may run at a time.
+- The build discovers recent DOL LCA files, downloads them into staging, builds sqlite with streaming/batched inserts, verifies the index, atomically activates it, then cleans stale cache files.
+- Failed builds must not destroy the previously active index.
+
+### GET /api/v1/dol/index/jobs/{job_id}
+
+Purpose: poll DOL index build progress.
+
+Rules:
+
+- Job phases include `queued`, `discovering`, `downloading`, `indexing`, `verifying`, `activating`, `cleaning`, `completed`, and `failed`.
+
+### POST /api/v1/dol/index/cleanup
+
+Purpose: clean stale DOL cache files.
+
+Rules:
+
+- Cleanup must only delete files inside the configured DOL cache directory.
+- Normal cleanup removes stale staging files, old temp indexes, and unreferenced downloads.
 
 ### POST /api/v1/forms/draft-answer
 

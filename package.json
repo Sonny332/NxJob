@@ -11,6 +11,7 @@
   "scripts": {
     "extension:dev": "npm --workspace @nxjob/extension run dev",
     "extension:build": "npm --workspace @nxjob/extension run build",
+    "extension:validate-manifest": "node scripts/package/validate-extension-manifest.mjs",
     "extension:typecheck": "npm --workspace @nxjob/extension run typecheck",
     "extension:zip": "npm --workspace @nxjob/extension run zip",
     "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package/build-release.ps1",

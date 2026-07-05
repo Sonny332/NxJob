@@ -373,6 +373,65 @@ class WorkflowResultsResponse(TraceResponse):
     results: list[WorkflowResultRecord] = Field(default_factory=list)
 
 
+class DolIndexSelectedFileRecord(BaseModel):
+    fy: int = 0
+    quarter: int | None = None
+    url: str = ""
+    path: str = ""
+    size_bytes: int = 0
+
+
+class DolIndexJobRecord(BaseModel):
+    job_id: str = ""
+    status: str = ""
+    phase: str = ""
+    message: str = ""
+    error: str = ""
+    started_at: str = ""
+    completed_at: str = ""
+    progress_current: int = 0
+    progress_total: int = 0
+
+
+class DolIndexStatusSummary(BaseModel):
+    status: str = "not_built"
+    cache_dir: str = ""
+    active_index_ready: bool = False
+    fingerprint: str = "unavailable"
+    index_schema_version: int = 1
+    last_built_at: str = ""
+    last_checked_at: str = ""
+    expires_at: str = ""
+    row_count: int = 0
+    cache_size_bytes: int = 0
+    max_cache_bytes: int = 2 * 1024 * 1024 * 1024
+    selected_files: list[DolIndexSelectedFileRecord] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    current_job: DolIndexJobRecord | None = None
+
+
+class DolIndexStatusResponse(DolIndexStatusSummary, TraceResponse):
+    pass
+
+
+class DolIndexBuildRequest(BaseModel):
+    force: bool = False
+
+
+class DolIndexBuildResponse(DolIndexJobRecord, TraceResponse):
+    pass
+
+
+class DolIndexJobResponse(DolIndexJobRecord, TraceResponse):
+    pass
+
+
+class DolIndexCleanupResponse(TraceResponse):
+    deleted_files: list[str] = Field(default_factory=list)
+    freed_bytes: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ConfigStatusResponse(TraceResponse):
     master_resume_configured: bool
     master_resume_source: str = ""
@@ -385,7 +444,11 @@ class ConfigStatusResponse(TraceResponse):
     ai_provider_source: str = ""
     resume_output_dir_configured: bool = False
     resume_output_dir: str = ""
+    dol_cache_dir_configured: bool = False
+    dol_cache_dir_source: str = ""
+    dol_cache_dir: str = ""
     public_lookup_available: bool = False
+    dol_index_status: DolIndexStatusSummary = Field(default_factory=DolIndexStatusSummary)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -425,6 +488,12 @@ class AiProviderProfileActivateResponse(TraceResponse):
 
 class ResumeOutputDirectoryUpdate(BaseModel):
     path: str
+
+
+class DolCacheDirectoryUpdate(BaseModel):
+    path: str
+    max_cache_bytes: int | None = Field(default=None, gt=0)
+
 
 class FieldContext(BaseModel):
     field_id: str = ""
