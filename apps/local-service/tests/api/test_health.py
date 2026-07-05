@@ -5,7 +5,7 @@ from nxjob.main import create_app
 
 
 def test_runtime_version_matches_release_line() -> None:
-    assert __version__ == "0.6.1"
+    assert __version__ == "0.6.2"
 
 
 def test_health() -> None:

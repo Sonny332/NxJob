@@ -60,7 +60,10 @@ function validateVersion(manifest, expectedReleaseVersion) {
       `Generated manifest version '${manifest.version}' does not match expected Chrome version '${expectedChromeVersion}'.`
     );
   }
-  if (manifest.version_name !== expectedReleaseVersion) {
+  if (
+    manifest.version_name !== expectedReleaseVersion &&
+    (expectedReleaseVersion !== expectedChromeVersion || manifest.version_name)
+  ) {
     throw new Error(
       `Generated manifest version_name '${manifest.version_name}' does not match expected release version '${expectedReleaseVersion}'.`
     );

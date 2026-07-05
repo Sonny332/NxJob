@@ -17,6 +17,8 @@ Use `docs/install-windows.md` for the installer path.
 
 Current MVP installer note: download the latest `NxJob-<version>.zip` release package, unzip it, and use the root `.bat` files for install, start, status, stop, and uninstall. Do not use GitHub's auto-generated source-code zip as the normal user install path.
 
+Current release: `v0.6.2`. This release adds the managed DOL LCA index used by sponsorship checks. Build or refresh the DOL index from Settings before relying on employer-history evidence.
+
 The Windows local-service package requires Python 3.11+ on the user's machine.
 
 ## MVP Scope

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.6.1",
+  [string]$Version = "0.6.2",
   [string]$ArtifactsDir = ""
 )
 
@@ -242,8 +242,14 @@ if ($Version -match "^(?<numeric>\d+\.\d+\.\d+(?:\.\d+)?)") {
 else {
   throw "Release version '$Version' does not start with a Chrome extension compatible numeric version."
 }
-if ($extensionManifest.version_name -ne $Version) {
-  throw "Extension manifest version_name '$($extensionManifest.version_name)' does not match release version '$Version'."
+$extensionManifestVersionName = if ($extensionManifest.PSObject.Properties.Name -contains "version_name") {
+  $extensionManifest.version_name
+}
+else {
+  ""
+}
+if ($extensionManifestVersionName -ne $Version -and ($Version -ne $extensionManifest.version -or $extensionManifestVersionName)) {
+  throw "Extension manifest version_name '$extensionManifestVersionName' does not match release version '$Version'."
 }
 
 $bundleEntries = Get-ZipEntries -ZipPath $bundleZip
