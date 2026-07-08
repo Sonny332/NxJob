@@ -114,6 +114,15 @@ EXPLICIT_POSITIVE_RULES = [
 LIKELY_NEGATIVE_RULES = [
     Rule(
         re.compile(
+            r"\b(?:legally\s+)?authorized\s+to\s+work\b.{0,180}\b(?:continual|continuous)\s+and\s+permanent\s+basis\b.{0,80}\bwithout\s+(?:company\s+)?sponsorship\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "does_not_support",
+        0.92,
+        "The posting requires permanent work authorization without company sponsorship.",
+    ),
+    Rule(
+        re.compile(
             r"\b(authorized\s+to\s+work|work\s+authorization).{0,120}\bwithout\s+(?:requiring\s+)?(?:visa\s+)?sponsorship\b.{0,80}\b(now\s+or\s+in\s+the\s+future)\b",
             re.IGNORECASE | re.DOTALL,
         ),

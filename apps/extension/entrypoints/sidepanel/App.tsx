@@ -17,7 +17,6 @@ import {
   getDolIndexJob,
   getDolIndexStatus,
   getResumeArtifactUrl,
-  getJobLead,
   getWorkflowResults,
   listAiProviderProfiles,
   listApplications,
@@ -31,6 +30,7 @@ import {
   type ApplicationMethod,
   type ApplicationRecord,
   type AiProviderProfileRecord,
+  type CaptureJobLeadResponse,
   type ConfigStatusResponse,
   type DolIndexBuildResponse,
   type DolIndexJob,
@@ -57,10 +57,12 @@ import {
 } from "../../src/lib/page-capture";
 import {
   createWorkspaceRecord,
+  emptyWorkflow,
   loadWorkspaceState,
   saveWorkspaceState,
   updateWorkspaceJob,
   upsertWorkspaceJob,
+  type CaptureSummary,
   type JobWorkspaceRecord,
   type WorkspaceState
 } from "../../src/lib/workspace-state";
@@ -163,6 +165,10 @@ const AI_PROVIDER_PRESETS = {
 
 type AiProviderPresetKey = keyof typeof AI_PROVIDER_PRESETS;
 const INITIAL_WORKSPACE_STATE: WorkspaceState = { focusedJobId: "", showHidden: false, jobs: [] };
+type PendingDuplicateCapture = {
+  context: PageContext;
+  capture: CaptureJobLeadResponse;
+};
 
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
@@ -185,6 +191,7 @@ export function App() {
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
   const [successReferenceCount, setSuccessReferenceCount] = useState<number | null>(null);
   const [dolIndexAction, setDolIndexAction] = useState<DolIndexAction>("idle");
+  const [pendingDuplicateCapture, setPendingDuplicateCapture] = useState<PendingDuplicateCapture | null>(null);
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -386,43 +393,81 @@ export function App() {
     }
   }
 
+  async function finalizeCapturedJob(context: PageContext, capture: CaptureJobLeadResponse) {
+    if (capture.dedupe.requires_user_choice) {
+      setPendingDuplicateCapture({ context, capture });
+      setMessage("Existing JobLead has linked records. Choose Update existing or Create new.");
+      return;
+    }
+
+    setPendingDuplicateCapture(null);
+    const nextRecord = createWorkspaceRecord({
+      jobLead: capture.job_lead,
+      pageTitle: context.title,
+      pageUrl: context.url,
+      selectedTextLength: context.selectedText.length,
+      pageTextLength: context.captureText.length || context.pageTextExcerpt.length,
+      capture: captureSummaryFromResponse(context, capture)
+    });
+    const hydratedRecord =
+      capture.dedupe.action === "update_existing" ? nextRecord : await hydrateWorkflowResults(nextRecord);
+    await hydrateTrackingForJobs([hydratedRecord]);
+
+    const latestWorkspace = await loadWorkspaceState();
+    const nextWorkspace = upsertWorkspaceJob(latestWorkspace, hydratedRecord);
+    replaceWorkspaceState(nextWorkspace);
+    await saveWorkspaceState(nextWorkspace);
+    if (capture.dedupe.action === "update_existing") {
+      setMessage("Existing JobLead updated. Running local sponsorship check...");
+      await runSponsorship(
+        {
+          ...hydratedRecord,
+          workflows: {
+            sponsorship: emptyWorkflow(),
+            resume: emptyWorkflow(),
+            formAnswer: emptyWorkflow()
+          }
+        },
+        { forceRefresh: true, allowAi: false }
+      );
+      return;
+    }
+    const sponsorshipResult = hydratedRecord.workflows.sponsorship.result;
+    if (!sponsorshipResult) {
+      setMessage("Current job captured. Running local sponsorship check...");
+      await runSponsorship(hydratedRecord, { allowAi: false });
+      return;
+    }
+    if (!sponsorshipResult.ai_used) {
+      setMessage("Current job captured. Refreshing local sponsorship check...");
+      await runSponsorship(hydratedRecord, { forceRefresh: true, allowAi: false });
+      return;
+    }
+    setMessage(capture.dedupe.is_duplicate ? "Duplicate JD captured." : "Current job captured.");
+  }
+
   async function captureCurrentJob() {
     try {
       setMessage("Capturing current tab...");
       const context = await captureActiveTabContext();
       setPageContext(context);
-      const capture = await captureJobLead(context);
-      const canonicalJob = capture.dedupe.existing_job_lead_id
-        ? await getJobLead(capture.dedupe.existing_job_lead_id)
-        : capture.job_lead;
-      const nextRecord = createWorkspaceRecord({
-        jobLead: canonicalJob,
-        pageTitle: context.title,
-        pageUrl: context.url,
-        selectedTextLength: context.selectedText.length,
-        pageTextLength: context.pageTextExcerpt.length
-      });
-      const hydratedRecord = await hydrateWorkflowResults(nextRecord);
-      await hydrateTrackingForJobs([hydratedRecord]);
-
-      const latestWorkspace = await loadWorkspaceState();
-      const nextWorkspace = upsertWorkspaceJob(latestWorkspace, hydratedRecord);
-      replaceWorkspaceState(nextWorkspace);
-      await saveWorkspaceState(nextWorkspace);
-      const sponsorshipResult = hydratedRecord.workflows.sponsorship.result;
-      if (!sponsorshipResult) {
-        setMessage("Current job captured. Running local sponsorship check...");
-        await runSponsorship(hydratedRecord, { allowAi: false });
-        return;
-      }
-      if (!sponsorshipResult.ai_used) {
-        setMessage("Current job captured. Refreshing local sponsorship check...");
-        await runSponsorship(hydratedRecord, { forceRefresh: true, allowAi: false });
-        return;
-      }
-      setMessage(capture.dedupe.is_duplicate ? "Existing JobLead restored from cache." : "Current job captured.");
+      const capture = await captureJobLead(context, { duplicateAction: "" });
+      await finalizeCapturedJob(context, capture);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to capture current job.");
+    }
+  }
+
+  async function resolvePendingDuplicate(action: "update_existing" | "create_new") {
+    if (!pendingDuplicateCapture) return;
+
+    try {
+      setMessage("Resolving duplicate capture...");
+      const { context } = pendingDuplicateCapture;
+      const capture = await captureJobLead(context, { duplicateAction: action });
+      await finalizeCapturedJob(context, capture);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to resolve duplicate capture.");
     }
   }
 
@@ -978,7 +1023,7 @@ export function App() {
       </section>
 
       <section className="capture-strip" aria-label="Capture">
-        <button type="button" onClick={captureCurrentJob}>
+        <button type="button" onClick={() => void captureCurrentJob()}>
           Capture Current Tab
         </button>
         <div>
@@ -986,6 +1031,22 @@ export function App() {
           <small>{pageContext ? `${pageContext.selectedText.length} selected chars` : "Select a JD, then capture."}</small>
         </div>
       </section>
+
+      {pendingDuplicateCapture ? (
+        <CaptureResultCard
+          capture={captureSummaryFromResponse(pendingDuplicateCapture.context, pendingDuplicateCapture.capture)}
+          dolWarnings={[]}
+          pendingChoice
+          onUpdateExisting={() => void resolvePendingDuplicate("update_existing")}
+          onCreateNew={() => void resolvePendingDuplicate("create_new")}
+        />
+      ) : focusedJob ? (
+        <CaptureResultCard
+          capture={focusedJob.capture}
+          dolWarnings={captureDolWarnings(focusedJob)}
+          pendingChoice={false}
+        />
+      ) : null}
 
       <section className="workspace" aria-label="Job workspace">
         <nav className="job-list" aria-label="Captured jobs">
@@ -1230,6 +1291,66 @@ function JobDetail(props: {
         <WorkflowMessage run={job.workflows.formAnswer} />
       )}
     </article>
+  );
+}
+
+function CaptureResultCard(props: {
+  capture: CaptureSummary;
+  dolWarnings: string[];
+  pendingChoice: boolean;
+  onUpdateExisting?: () => void;
+  onCreateNew?: () => void;
+}) {
+  return (
+    <section className="result-block" aria-label="Capture result">
+      <div className="result-heading">
+        <div>
+          <strong>Capture Result</strong>
+          <span>{props.capture.isDuplicate ? "Duplicate" : "New JobLead"}</span>
+        </div>
+        <span className={props.capture.isDuplicate ? "setup-needed" : "setup-ok"}>
+          {props.capture.isDuplicate ? "duplicate" : "new"}
+        </span>
+      </div>
+      <div className="compact-list">
+        <span>JD source</span>
+        <p>{humanizeCaptureSource(props.capture.jdSource)}</p>
+      </div>
+      <div className="compact-list">
+        <span>JD length</span>
+        <p>{props.capture.jdLength} chars</p>
+      </div>
+      {props.dolWarnings.length > 0 ? (
+        <div className="questions">
+          <strong>DOL warning</strong>
+          <ul>
+            {props.dolWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {props.capture.warnings.length > 0 ? (
+        <div className="questions">
+          <strong>Warnings</strong>
+          <ul>
+            {props.capture.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {props.pendingChoice ? (
+        <div className="feedback-grid">
+          <button type="button" onClick={props.onUpdateExisting}>
+            Update existing
+          </button>
+          <button type="button" className="secondary-button" onClick={props.onCreateNew}>
+            Create new
+          </button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1560,6 +1681,39 @@ function jobSummary(job: JobWorkspaceRecord): string {
   const sponsorshipText = sponsorship ? sponsorshipLabel(sponsorship.sponsorship.status) : "No sponsorship result";
   const resumeText = resume ? "Resume ready" : "No resume";
   return `${sponsorshipText} · ${resumeText}`;
+}
+
+function captureSummaryFromResponse(context: PageContext, capture: CaptureJobLeadResponse): CaptureSummary {
+  return {
+    isDuplicate: capture.dedupe.is_duplicate,
+    existingJobLeadId: capture.dedupe.existing_job_lead_id ?? "",
+    dedupeAction: capture.dedupe.action,
+    requiresUserChoice: capture.dedupe.requires_user_choice,
+    warnings: capture.dedupe.warnings,
+    jdSource: context.captureSource,
+    jdLength: context.captureText.length || context.pageTextExcerpt.length
+  };
+}
+
+function captureDolWarnings(job: JobWorkspaceRecord): string[] {
+  const result = job.workflows.sponsorship.result;
+  if (!result) return [];
+  const warnings = [
+    ...result.sponsorship.risk_flags.filter((flag) => flag.startsWith("dol_lca_") || flag === "cache_expired_network_failed"),
+    ...result.evidence
+      .filter((item) => item.source === "dol_lca_history" && item.evidence_text.toLowerCase().includes("warning"))
+      .map((item) => item.evidence_text)
+  ];
+  return Array.from(new Set(warnings.map(humanizeSponsorshipNote)));
+}
+
+function humanizeCaptureSource(source: string): string {
+  const labels: Record<string, string> = {
+    selected_text: "Selected text",
+    linkedin_job_detail: "LinkedIn auto capture",
+    page_text_excerpt: "Page excerpt"
+  };
+  return labels[source] ?? (source || "Unknown");
 }
 
 function jobDisplayTitle(jobLead: JobLeadRecord): string {

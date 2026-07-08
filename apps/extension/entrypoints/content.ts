@@ -1,6 +1,12 @@
 import { browser } from "wxt/browser";
 
-import { captureActiveFieldContext, capturePageContext, fillActiveField, fillFieldById, scanFormFields } from "../src/lib/form-context";
+import {
+  captureActiveFieldContext,
+  capturePageContext,
+  fillActiveField,
+  fillFieldById,
+  scanFormFields
+} from "../src/lib/form-context";
 
 export default defineContentScript({
   matches: ["<all_urls>"],

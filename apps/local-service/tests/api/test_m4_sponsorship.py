@@ -454,6 +454,40 @@ def test_sponsorship_jd_explicit_rejection_overrides_dol_history(
     assert not any(item["source"] == "dol_lca_history" for item in body["evidence"])
 
 
+def test_sponsorship_permanent_work_authorization_without_company_sponsorship_overrides_dol_history(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+    monkeypatch.setattr(
+        "nxjob.api.sponsorship.resolve_dol_lca_history",
+        lambda company_name: _fake_dol_result(
+            match_count=9,
+            recent_certified_count=4,
+            employer_name=company_name,
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        job_id = _capture_job(
+            client,
+            (
+                "Applicants must be legally authorized to work in the United States on a continual "
+                "and permanent basis without company sponsorship."
+            ),
+            company_name="Acme Data Inc",
+        )
+        response = client.post(
+            "/api/v1/sponsorship/analyze",
+            json={"job_lead_id": job_id, "allow_ai": True, "allow_public_lookup": True},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["sponsorship"]["status"] == "does_not_support"
+    assert body["ai_used"] is False
+    assert not any(item["source"] == "dol_lca_history" for item in body["evidence"])
+
+
 def test_sponsorship_dol_cache_key_separates_same_jd_different_employers(
     tmp_path, monkeypatch
 ) -> None:
@@ -1158,10 +1192,12 @@ def _capture_job(
     company_name: str = "",
     page_title: str = "Sponsorship test",
 ) -> str:
+    source_slug = f"{company_name or page_title}".lower()
+    source_slug = "".join(char if char.isalnum() else "-" for char in source_slug).strip("-") or "sponsorship-test"
     response = client.post(
         "/api/v1/job-leads/capture",
         json={
-            "source_url": "https://example.com/jobs/sponsorship-test",
+            "source_url": f"https://example.com/jobs/{source_slug}",
             "source_site": "company_ats",
             "page_title": page_title,
             "company_name": company_name,

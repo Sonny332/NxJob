@@ -20,6 +20,16 @@ export type WorkflowRun<T> = {
   error: string;
 };
 
+export type CaptureSummary = {
+  isDuplicate: boolean;
+  existingJobLeadId: string;
+  dedupeAction: "" | "update_existing" | "create_new";
+  requiresUserChoice: boolean;
+  warnings: string[];
+  jdSource: string;
+  jdLength: number;
+};
+
 export type JobWorkspaceRecord = {
   id: string;
   jobLead: JobLeadRecord;
@@ -27,6 +37,7 @@ export type JobWorkspaceRecord = {
   pageUrl: string;
   selectedTextLength: number;
   pageTextLength: number;
+  capture: CaptureSummary;
   createdAt: string;
   updatedAt: string;
   visibility: "active" | "hidden";
@@ -61,6 +72,7 @@ export function createWorkspaceRecord(params: {
   pageUrl: string;
   selectedTextLength: number;
   pageTextLength: number;
+  capture: CaptureSummary;
 }): JobWorkspaceRecord {
   const now = new Date().toISOString();
   return {
@@ -70,15 +82,16 @@ export function createWorkspaceRecord(params: {
     pageUrl: params.pageUrl,
     selectedTextLength: params.selectedTextLength,
     pageTextLength: params.pageTextLength,
+    capture: params.capture,
     createdAt: now,
     updatedAt: now,
     visibility: "active",
     hiddenAt: "",
     tabPresence: "unknown",
     workflows: {
-      sponsorship: emptyWorkflow(),
-      resume: emptyWorkflow(),
-      formAnswer: emptyWorkflow()
+      sponsorship: emptyWorkflow<SponsorshipAnalyzeResponse>(),
+      resume: emptyWorkflow<ResumeTailorResponse>(),
+      formAnswer: emptyWorkflow<FormAnswerDraftResponse | FormAnswerDraftsResponse>()
     }
   };
 }
@@ -103,6 +116,8 @@ export function upsertWorkspaceJob(
   record: JobWorkspaceRecord
 ): WorkspaceState {
   const existing = state.jobs.find((job) => job.id === record.id || job.jobLead.jd_hash === record.jobLead.jd_hash);
+  const clearsWorkflowResults =
+    existing && record.capture.dedupeAction === "update_existing" && existing.jobLead.jd_hash !== record.jobLead.jd_hash;
   const nextRecord = existing
     ? {
         ...existing,
@@ -111,18 +126,25 @@ export function upsertWorkspaceJob(
         pageUrl: record.pageUrl,
         selectedTextLength: record.selectedTextLength,
         pageTextLength: record.pageTextLength,
+        capture: record.capture,
         updatedAt: new Date().toISOString(),
         visibility: "active" as const,
         hiddenAt: "",
         workflows: {
-          sponsorship: mergeWorkflowRun(
-            existing.workflows.sponsorship,
-            record.workflows.sponsorship,
-            shouldKeepExistingSponsorshipResult,
-            shouldUseIncomingSponsorshipResult
-          ),
-          resume: mergeWorkflowRun(existing.workflows.resume, record.workflows.resume),
-          formAnswer: mergeWorkflowRun(existing.workflows.formAnswer, record.workflows.formAnswer)
+          sponsorship: clearsWorkflowResults
+            ? emptyWorkflow<SponsorshipAnalyzeResponse>()
+            : mergeWorkflowRun(
+                existing.workflows.sponsorship,
+                record.workflows.sponsorship,
+                shouldKeepExistingSponsorshipResult,
+                shouldUseIncomingSponsorshipResult
+              ),
+          resume: clearsWorkflowResults
+            ? emptyWorkflow<ResumeTailorResponse>()
+            : mergeWorkflowRun(existing.workflows.resume, record.workflows.resume),
+          formAnswer: clearsWorkflowResults
+            ? emptyWorkflow<FormAnswerDraftResponse | FormAnswerDraftsResponse>()
+            : mergeWorkflowRun(existing.workflows.formAnswer, record.workflows.formAnswer)
         }
       }
     : record;
@@ -198,8 +220,22 @@ function normalizeWorkspaceState(value: unknown): WorkspaceState {
 function normalizeJobRecord(job: JobWorkspaceRecord): JobWorkspaceRecord {
   return {
     ...job,
+    capture: normalizeCaptureSummary(job.capture),
     visibility: job.visibility === "hidden" ? "hidden" : "active",
     hiddenAt: typeof job.hiddenAt === "string" ? job.hiddenAt : "",
     tabPresence: ["open", "closed", "unknown"].includes(job.tabPresence) ? job.tabPresence : "unknown"
+  };
+}
+
+function normalizeCaptureSummary(capture: CaptureSummary | undefined): CaptureSummary {
+  return {
+    isDuplicate: Boolean(capture?.isDuplicate),
+    existingJobLeadId: typeof capture?.existingJobLeadId === "string" ? capture.existingJobLeadId : "",
+    dedupeAction:
+      capture?.dedupeAction === "update_existing" || capture?.dedupeAction === "create_new" ? capture.dedupeAction : "",
+    requiresUserChoice: Boolean(capture?.requiresUserChoice),
+    warnings: Array.isArray(capture?.warnings) ? capture.warnings : [],
+    jdSource: typeof capture?.jdSource === "string" ? capture.jdSource : "",
+    jdLength: typeof capture?.jdLength === "number" ? capture.jdLength : 0
   };
 }

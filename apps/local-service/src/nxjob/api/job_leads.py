@@ -22,15 +22,12 @@ def capture_job_lead(payload: JobLeadCapture) -> JobLeadCaptureResponse:
 
     trace_id = new_trace_id()
     with db_session() as connection:
-        record, duplicate_id = create_job_lead(connection, payload)
+        record, dedupe = create_job_lead(connection, payload)
 
     return JobLeadCaptureResponse(
         trace_id=trace_id,
         job_lead=record,
-        dedupe={
-            "is_duplicate": duplicate_id is not None,
-            "existing_job_lead_id": duplicate_id,
-        },
+        dedupe=dedupe,
     )
 
 

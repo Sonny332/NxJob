@@ -60,17 +60,125 @@ def row_to_job_lead(row: sqlite3.Row) -> JobLeadRecord:
     )
 
 
-def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> tuple[JobLeadRecord, str | None]:
+def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> tuple[JobLeadRecord, dict[str, object]]:
     text = payload.selected_text or payload.page_text_excerpt
     digest = jd_hash(text)
-    platform_insights = dict(payload.platform_insights)
-    if payload.capture_metadata:
-        platform_insights["capture_metadata"] = payload.capture_metadata
+    source_url = canonical_source_url(payload)
+    platform_insights = build_platform_insights(payload)
+    candidates = list_job_leads_by_source_url(connection, source_url)
+    existing = candidates[0] if candidates else None
+
+    if existing:
+        warnings = duplicate_warnings_for_job_leads(connection, [candidate.id for candidate in candidates])
+        requires_user_choice = bool(warnings) and payload.duplicate_action == ""
+
+        if requires_user_choice:
+            return (
+                existing,
+                {
+                    "is_duplicate": True,
+                    "existing_job_lead_id": existing.id,
+                    "action": "",
+                    "requires_user_choice": True,
+                    "warnings": warnings,
+                },
+            )
+
+        if payload.duplicate_action != "create_new":
+            updated = update_job_lead(
+                connection,
+                existing.id,
+                payload=payload,
+                source_url=source_url,
+                text=text,
+                digest=digest,
+                platform_insights=platform_insights,
+            )
+            return (
+                updated,
+                {
+                    "is_duplicate": True,
+                    "existing_job_lead_id": existing.id,
+                    "action": "update_existing",
+                    "requires_user_choice": False,
+                    "warnings": warnings,
+                },
+            )
+
+        created = insert_job_lead(
+            connection,
+            payload=payload,
+            source_url=source_url,
+            text=text,
+            digest=digest,
+            platform_insights=platform_insights,
+        )
+        return (
+            created,
+            {
+                "is_duplicate": True,
+                "existing_job_lead_id": existing.id,
+                "action": "create_new",
+                "requires_user_choice": False,
+                "warnings": [],
+            },
+        )
+
     duplicate = connection.execute(
         "SELECT id FROM job_leads WHERE jd_hash = ? ORDER BY captured_at DESC LIMIT 1",
         (digest,),
     ).fetchone()
+    created = insert_job_lead(
+        connection,
+        payload=payload,
+        source_url=source_url,
+        text=text,
+        digest=digest,
+        platform_insights=platform_insights,
+    )
+    return (
+        created,
+        {
+            "is_duplicate": duplicate is not None,
+            "existing_job_lead_id": duplicate["id"] if duplicate else None,
+            "action": "",
+            "requires_user_choice": False,
+            "warnings": [],
+        },
+    )
 
+
+def canonical_source_url(payload: JobLeadCapture) -> str:
+    value = payload.capture_metadata.get("canonical_url")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return str(payload.source_url)
+
+
+def build_platform_insights(payload: JobLeadCapture) -> dict[str, object]:
+    platform_insights = dict(payload.platform_insights)
+    if payload.capture_metadata:
+        platform_insights["capture_metadata"] = payload.capture_metadata
+    return platform_insights
+
+
+def list_job_leads_by_source_url(connection: sqlite3.Connection, source_url: str) -> list[JobLeadRecord]:
+    rows = connection.execute(
+        "SELECT * FROM job_leads WHERE source_url = ? ORDER BY captured_at DESC",
+        (source_url,),
+    ).fetchall()
+    return [row_to_job_lead(row) for row in rows]
+
+
+def insert_job_lead(
+    connection: sqlite3.Connection,
+    *,
+    payload: JobLeadCapture,
+    source_url: str,
+    text: str,
+    digest: str,
+    platform_insights: dict[str, object],
+) -> JobLeadRecord:
     record_id = new_id("job")
     connection.execute(
         """
@@ -83,7 +191,7 @@ def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> 
         """,
         (
             record_id,
-            str(payload.source_url),
+            source_url,
             payload.source_site,
             payload.page_title,
             payload.company_name,
@@ -97,7 +205,98 @@ def create_job_lead(connection: sqlite3.Connection, payload: JobLeadCapture) -> 
             payload.user_notes,
         ),
     )
-    return get_job_lead(connection, record_id), duplicate["id"] if duplicate else None
+    return get_job_lead(connection, record_id)
+
+
+def update_job_lead(
+    connection: sqlite3.Connection,
+    record_id: str,
+    *,
+    payload: JobLeadCapture,
+    source_url: str,
+    text: str,
+    digest: str,
+    platform_insights: dict[str, object],
+) -> JobLeadRecord:
+    connection.execute(
+        """
+        UPDATE job_leads
+        SET source_url = ?,
+            source_site = ?,
+            page_title = ?,
+            company_name = ?,
+            job_title = ?,
+            location = ?,
+            captured_at = ?,
+            jd_text = ?,
+            jd_hash = ?,
+            platform_insights_json = ?,
+            search_query = ?,
+            status = 'captured',
+            user_notes = ?
+        WHERE id = ?
+        """,
+        (
+            source_url,
+            payload.source_site,
+            payload.page_title,
+            payload.company_name,
+            payload.job_title,
+            payload.location,
+            utc_now(),
+            text,
+            digest,
+            json.dumps(platform_insights, ensure_ascii=False),
+            payload.search_query,
+            payload.user_notes,
+            record_id,
+        ),
+    )
+    return get_job_lead(connection, record_id)
+
+
+def duplicate_warnings(connection: sqlite3.Connection, job_lead_id: str) -> list[str]:
+    warnings: list[str] = []
+    if has_linked_resume_versions(connection, job_lead_id):
+        warnings.append("Existing JobLead has linked resume versions.")
+    if has_linked_applications(connection, job_lead_id):
+        warnings.append("Existing JobLead has linked applications.")
+    if has_linked_outcomes(connection, job_lead_id):
+        warnings.append("Existing JobLead has linked outcome signals.")
+    return warnings
+
+
+def duplicate_warnings_for_job_leads(connection: sqlite3.Connection, job_lead_ids: list[str]) -> list[str]:
+    warnings: list[str] = []
+    for job_lead_id in job_lead_ids:
+        for warning in duplicate_warnings(connection, job_lead_id):
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings
+
+
+def has_linked_resume_versions(connection: sqlite3.Connection, job_lead_id: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM resume_versions WHERE job_lead_id = ? LIMIT 1",
+        (job_lead_id,),
+    ).fetchone()
+    return row is not None
+
+
+def has_linked_applications(connection: sqlite3.Connection, job_lead_id: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM applications WHERE job_lead_id = ? LIMIT 1",
+        (job_lead_id,),
+    ).fetchone()
+    return row is not None
+
+
+def has_linked_outcomes(connection: sqlite3.Connection, job_lead_id: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM outcome_signals WHERE job_lead_id = ? LIMIT 1",
+        (job_lead_id,),
+    ).fetchone()
+    return row is not None
 
 
 def get_job_lead(connection: sqlite3.Connection, record_id: str) -> JobLeadRecord:

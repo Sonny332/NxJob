@@ -56,6 +56,9 @@ export type CaptureJobLeadResponse = {
   dedupe: {
     is_duplicate: boolean;
     existing_job_lead_id: string | null;
+    action: "" | "update_existing" | "create_new";
+    requires_user_choice: boolean;
+    warnings: string[];
   };
 };
 
@@ -352,26 +355,45 @@ export async function checkHealth(): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-export async function captureJobLead(context: PageContext): Promise<CaptureJobLeadResponse> {
+export async function captureJobLead(
+  context: PageContext,
+  options: { duplicateAction?: "" | "update_existing" | "create_new" } = {}
+): Promise<CaptureJobLeadResponse> {
+  if (context.selectedText.length > 0 && context.selectedText.length < 400) {
+    throw new Error("Selected JD text is shorter than 400 characters. Expand the selection, then retry capture.");
+  }
+  if (!context.captureText.trim()) {
+    throw new Error(context.captureWarnings[0] || "Captured JD text is too short. Open the full job description, then retry capture.");
+  }
+
+  const useSelectedText = context.captureSource === "selected_text";
   const response = await fetch(`${API_BASE_URL}/api/v1/job-leads/capture`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      source_url: context.url,
+      source_url: context.canonicalUrl || context.url,
       source_site: inferSourceSite(context.url),
       page_title: context.title,
       job_title: context.jobTitle ?? "",
       company_name: context.companyName ?? "",
       location: context.location ?? "",
-      selected_text: context.selectedText,
-      page_text_excerpt: context.pageTextExcerpt,
+      selected_text: useSelectedText ? context.captureText : "",
+      page_text_excerpt: useSelectedText ? "" : context.captureText,
       platform_insights: {},
       capture_metadata: {
-        source: context.metadataSource ?? "",
-        confidence: context.metadataConfidence ?? 0
+        source: context.captureSource,
+        extractor: context.captureExtractor,
+        text_length: context.captureText.length,
+        raw_url: context.rawUrl || context.url,
+        canonical_url: context.canonicalUrl || context.url,
+        linkedin_job_id: context.linkedinJobId || "",
+        warnings: context.captureWarnings,
+        confidence: context.metadataConfidence ?? 0,
+        metadata_source: context.metadataSource ?? ""
       },
+      duplicate_action: options.duplicateAction ?? "",
       search_query: "",
       user_notes: ""
     })

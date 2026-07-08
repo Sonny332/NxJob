@@ -1,6 +1,6 @@
 {
   "name": "@nxjob/extension",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -8,10 +8,11 @@
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
-    "typecheck": "wxt prepare && tsc --noEmit"
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test:capture": "node --experimental-strip-types tests/page-capture.test.mjs"
   },
   "dependencies": {
-    "@nxjob/shared": "0.6.2",
+    "@nxjob/shared": "0.7.0",
     "@wxt-dev/module-react": "latest",
     "react": "latest",
     "react-dom": "latest",

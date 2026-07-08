@@ -11,6 +11,13 @@ export type PageContext = {
   metadataSource?: string;
   metadataConfidence?: number;
   selectedText: string;
+  captureText: string;
+  captureSource: string;
+  captureExtractor: string;
+  captureWarnings: string[];
+  rawUrl: string;
+  canonicalUrl: string;
+  linkedinJobId: string;
   pageTextExcerpt: string;
 };
 

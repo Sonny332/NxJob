@@ -63,7 +63,7 @@ Response:
 {
   "status": "ok",
   "service": "nxjob-local-service",
-  "version": "0.6.2"
+  "version": "0.7.0"
 }
 ```
 
@@ -86,12 +86,26 @@ Request:
   "platform_insights": {},
   "capture_metadata": {
     "source": "linkedin_job_detail",
+    "extractor": "linkedin_auto",
+    "text_length": 1875,
+    "raw_url": "https://www.linkedin.com/jobs/view/123456789/?trackingId=abc",
+    "canonical_url": "https://www.linkedin.com/jobs/view/123456789/",
+    "linkedin_job_id": "123456789",
+    "warnings": [],
     "confidence": 0.9
   },
+  "duplicate_action": "",
   "search_query": "string",
   "user_notes": "string"
 }
 ```
+
+Rules:
+
+- If `selected_text` is present, it must be at least 400 characters. A shorter selected snippet is a user-visible capture error and must not silently fall back.
+- If `selected_text` is empty, the extension may send an auto-extracted LinkedIn JD body or a generic page excerpt through `page_text_excerpt`; auto-captured JD text shorter than 800 characters is treated as an incomplete capture and is not saved.
+- For LinkedIn `jobs/view/<id>` pages, `source_url` should be the canonical `https://www.linkedin.com/jobs/view/<id>/` URL. The raw browser URL stays in `capture_metadata.raw_url`.
+- `duplicate_action` supports `""`, `update_existing`, and `create_new`.
 
 Response:
 
@@ -108,10 +122,20 @@ Response:
   },
   "dedupe": {
     "is_duplicate": false,
-    "existing_job_lead_id": null
+    "existing_job_lead_id": null,
+    "action": "",
+    "requires_user_choice": false,
+    "warnings": []
   }
 }
 ```
+
+Duplicate handling:
+
+- Same canonical `JobLead.source_url` with no linked `ResumeVersion`, `Application`, or `OutcomeSignal` updates the existing `JobLead` in place and returns `action: "update_existing"`.
+- Same canonical `JobLead.source_url` with linked records and default `duplicate_action: ""` does not write a new row and returns `requires_user_choice: true`.
+- `duplicate_action: "update_existing"` preserves linked records and updates JD fields plus capture metadata on the existing `JobLead`.
+- `duplicate_action: "create_new"` creates a new `JobLead` row.
 
 ### GET /api/v1/job-leads/{job_lead_id}
 

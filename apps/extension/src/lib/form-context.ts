@@ -7,6 +7,13 @@ export type PageContext = {
   metadataSource?: string;
   metadataConfidence?: number;
   selectedText: string;
+  captureText: string;
+  captureSource: string;
+  captureExtractor: string;
+  captureWarnings: string[];
+  rawUrl: string;
+  canonicalUrl: string;
+  linkedinJobId: string;
   pageTextExcerpt: string;
 };
 
@@ -24,12 +31,49 @@ export type FieldContext = {
 };
 
 const MAX_TEXT_EXCERPT = 12000;
+const MIN_SELECTED_TEXT_LENGTH = 400;
+const MIN_AUTO_CAPTURE_TEXT_LENGTH = 800;
 const MAX_FORM_FIELDS = 30;
+const RECENT_SELECTION_MAX_AGE_MS = 30_000;
+
+type RecentSelectionSnapshot = {
+  text: string;
+  href: string;
+  capturedAt: number;
+};
+
+type QueryRoot = {
+  querySelector(selector: string): ElementLike | null;
+};
+
+type ElementLike = {
+  textContent?: string | null;
+};
+
+let recentSelectionSnapshot: RecentSelectionSnapshot = {
+  text: "",
+  href: "",
+  capturedAt: 0
+};
+
+initializeRecentSelectionTracking();
 
 export function capturePageContext(): PageContext {
-  const selectedText = window.getSelection()?.toString().trim() ?? "";
+  const selectedText = resolveSelectedText(
+    window.getSelection()?.toString().trim() ?? "",
+    getRecentSelectionText()
+  );
   const pageText = document.body?.innerText.trim() ?? "";
   const metadata = extractJobMetadata();
+  const linkedInJobId = extractLinkedInJobId(window.location.href);
+  const canonicalUrl = canonicalizeLinkedInJobUrl(window.location.href);
+  const linkedInDescription = linkedInJobId ? extractLinkedInJobDescriptionFromRoot(document) : "";
+  const capture = resolveCaptureText({
+    selectedText,
+    linkedInDescription,
+    pageText,
+    linkedInJobId,
+  });
 
   return {
     url: window.location.href,
@@ -40,8 +84,40 @@ export function capturePageContext(): PageContext {
     metadataSource: metadata.source,
     metadataConfidence: metadata.confidence,
     selectedText,
+    captureText: capture.text,
+    captureSource: capture.source,
+    captureExtractor: capture.extractor,
+    captureWarnings: capture.warnings,
+    rawUrl: window.location.href,
+    canonicalUrl,
+    linkedinJobId: linkedInJobId,
     pageTextExcerpt: pageText.slice(0, MAX_TEXT_EXCERPT)
   };
+}
+
+function initializeRecentSelectionTracking() {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+
+  const captureSelection = () => {
+    const text = window.getSelection()?.toString().trim() ?? "";
+    if (!text) return;
+    recentSelectionSnapshot = {
+      text,
+      href: window.location.href,
+      capturedAt: Date.now()
+    };
+  };
+
+  document.addEventListener("selectionchange", captureSelection, true);
+  window.addEventListener("mouseup", captureSelection, true);
+  window.addEventListener("keyup", captureSelection, true);
+}
+
+function getRecentSelectionText(now = Date.now()): string {
+  if (!recentSelectionSnapshot.text) return "";
+  if (recentSelectionSnapshot.href !== window.location.href) return "";
+  if (now - recentSelectionSnapshot.capturedAt > RECENT_SELECTION_MAX_AGE_MS) return "";
+  return recentSelectionSnapshot.text;
 }
 
 export function captureActiveFieldContext(): FieldContext {
@@ -334,6 +410,13 @@ type JobMetadata = {
   confidence: number;
 };
 
+type CaptureTextResolution = {
+  text: string;
+  source: string;
+  extractor: string;
+  warnings: string[];
+};
+
 function extractJobMetadata(): JobMetadata {
   const host = window.location.hostname.toLowerCase();
   if (host.includes("linkedin.")) {
@@ -379,6 +462,109 @@ function extractLinkedInJobMetadata(): JobMetadata {
   };
 }
 
+export function extractLinkedInJobId(url: string): string {
+  const detailMatch = url.match(/linkedin\.com\/jobs\/view\/(\d+)/i);
+  if (detailMatch?.[1]) return detailMatch[1];
+
+  try {
+    const parsed = new URL(url);
+    if (!/linkedin\.com$/i.test(parsed.hostname) && !/\.linkedin\.com$/i.test(parsed.hostname)) {
+      return "";
+    }
+    return parsed.searchParams.get("currentJobId") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function canonicalizeLinkedInJobUrl(url: string): string {
+  const linkedInJobId = extractLinkedInJobId(url);
+  return linkedInJobId ? `https://www.linkedin.com/jobs/view/${linkedInJobId}/` : url;
+}
+
+export function extractLinkedInJobDescriptionFromRoot(root: QueryRoot): string {
+  const text = textFromSelectors([
+    '[componentkey^="JobDetails_AboutTheJob_"]',
+    '[data-sdui-component*="aboutTheJob"]',
+    ".jobs-description__content .jobs-box__html-content",
+    ".jobs-box__html-content#job-details",
+    ".jobs-search__job-details--container .jobs-box__html-content",
+    ".jobs-search__job-details--container .jobs-description-content__text",
+    ".jobs-description-content__text",
+    ".jobs-box__html-content",
+    "[data-job-description]"
+  ], root);
+  return cleanLinkedInJobDescriptionText(text).slice(0, MAX_TEXT_EXCERPT);
+}
+
+export function cleanLinkedInJobDescriptionText(value: string): string {
+  return compactText(value)
+    .replace(/^About the job\s*/i, "")
+    .replace(/(?:\.\.\.|\u2026)\s*more\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function resolveSelectedText(selectedText: string, cachedSelectedText: string): string {
+  return selectedText || cachedSelectedText;
+}
+
+export function resolveCaptureText(input: {
+  selectedText: string;
+  linkedInDescription: string;
+  pageText: string;
+  linkedInJobId: string;
+}): CaptureTextResolution {
+  if (input.selectedText.length >= MIN_SELECTED_TEXT_LENGTH) {
+    return {
+      text: input.selectedText,
+      source: "selected_text",
+      extractor: "user_selection",
+      warnings: []
+    };
+  }
+  if (input.selectedText.length > 0) {
+    return {
+      text: "",
+      source: "selected_text",
+      extractor: "user_selection",
+      warnings: [`Selected text is shorter than ${MIN_SELECTED_TEXT_LENGTH} characters.`]
+    };
+  }
+  if (input.linkedInJobId && input.linkedInDescription.length >= MIN_AUTO_CAPTURE_TEXT_LENGTH) {
+    return {
+      text: input.linkedInDescription,
+      source: "linkedin_job_detail",
+      extractor: "linkedin_auto",
+      warnings: []
+    };
+  }
+  if (input.linkedInJobId && input.linkedInDescription) {
+    return {
+      text: "",
+      source: "linkedin_job_detail",
+      extractor: "linkedin_auto",
+      warnings: [`LinkedIn JD text is shorter than ${MIN_AUTO_CAPTURE_TEXT_LENGTH} characters.`]
+    };
+  }
+  const pageText = compactText(input.pageText).slice(0, MAX_TEXT_EXCERPT);
+  if (pageText.length < MIN_AUTO_CAPTURE_TEXT_LENGTH) {
+    return {
+      text: "",
+      source: "page_text_excerpt",
+      extractor: "generic_page_excerpt",
+      warnings: [`Page excerpt is shorter than ${MIN_AUTO_CAPTURE_TEXT_LENGTH} characters.`]
+    };
+  }
+  return {
+    text: pageText,
+    source: "page_text_excerpt",
+    extractor: "generic_page_excerpt",
+    warnings: []
+  };
+}
+
+
 function extractGenericJobMetadata(): JobMetadata {
   const jobTitle = textFromSelectors(["[data-job-title]", "[class*='job-title']", "[class*='JobTitle']", "main h1", "h1"]);
   const companyName = textFromSelectors([
@@ -397,9 +583,9 @@ function extractGenericJobMetadata(): JobMetadata {
   };
 }
 
-function textFromSelectors(selectors: string[]): string {
+function textFromSelectors(selectors: string[], root: QueryRoot = document): string {
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
+    const element = root.querySelector(selector);
     const text = compactText(element?.textContent ?? "");
     if (text) return text;
   }
@@ -416,4 +602,3 @@ function stripLinkedInNoise(value: string): string {
     .replace(/\s+actively hiring.*$/i, "")
     .replace(/\s+promoted.*$/i, "");
 }
-

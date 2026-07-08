@@ -240,6 +240,342 @@ def test_capture_requires_text(tmp_path, monkeypatch) -> None:
     assert response.status_code == 422
 
 
+def test_capture_auto_updates_existing_job_when_same_canonical_url_has_no_linked_records(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        first = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/123456789/?currentJobId=123456789",
+                "source_site": "linkedin",
+                "page_title": "First title",
+                "job_title": "Platform Engineer",
+                "company_name": "First Company",
+                "location": "Boston, MA",
+                "selected_text": "Original JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/123456789/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/123456789/?currentJobId=123456789",
+                },
+            },
+        )
+        assert first.status_code == 200
+        existing_id = first.json()["job_lead"]["id"]
+
+        second = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/123456789/",
+                "source_site": "linkedin",
+                "page_title": "Updated title",
+                "job_title": "Senior Platform Engineer",
+                "company_name": "Updated Company",
+                "location": "New York, NY",
+                "selected_text": "Updated JD text with new details",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/123456789/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/123456789/",
+                },
+            },
+        )
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["job_lead"]["id"] == existing_id
+    assert body["job_lead"]["job_title"] == "Senior Platform Engineer"
+    assert body["job_lead"]["company_name"] == "Updated Company"
+    assert body["job_lead"]["jd_text"] == "Updated JD text with new details"
+    assert body["dedupe"] == {
+        "is_duplicate": True,
+        "existing_job_lead_id": existing_id,
+        "action": "update_existing",
+        "requires_user_choice": False,
+        "warnings": [],
+    }
+
+
+def test_capture_requires_user_choice_when_same_canonical_url_has_linked_records(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        capture = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/222222222/",
+                "source_site": "linkedin",
+                "page_title": "Original title",
+                "job_title": "Controls Engineer",
+                "company_name": "ACME Controls",
+                "location": "Boston, MA",
+                "selected_text": "Original JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/222222222/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/222222222/",
+                },
+            },
+        )
+        assert capture.status_code == 200
+        existing_id = capture.json()["job_lead"]["id"]
+
+        resume = client.post(
+            "/api/v1/resume-versions",
+            json={
+                "job_lead_id": existing_id,
+                "source_master_resume_id": "master_default",
+                "file_path": "D:/Codex/NxJob/generated/resume.docx",
+                "selected_bullets": ["bullet_1"],
+                "change_summary": "Focused on controls automation.",
+            },
+        )
+        assert resume.status_code == 200
+
+        second = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/222222222/?trackingId=abc",
+                "source_site": "linkedin",
+                "page_title": "Updated title",
+                "job_title": "Senior Controls Engineer",
+                "company_name": "ACME Controls",
+                "location": "Chicago, IL",
+                "selected_text": "Updated JD text with new details",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/222222222/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/222222222/?trackingId=abc",
+                },
+            },
+        )
+        read_existing = client.get(f"/api/v1/job-leads/{existing_id}")
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["job_lead"]["id"] == existing_id
+    assert body["dedupe"]["is_duplicate"] is True
+    assert body["dedupe"]["existing_job_lead_id"] == existing_id
+    assert body["dedupe"]["action"] == ""
+    assert body["dedupe"]["requires_user_choice"] is True
+    assert body["dedupe"]["warnings"]
+    assert read_existing.json()["job_title"] == "Controls Engineer"
+    assert read_existing.json()["jd_text"] == "Original JD text"
+
+
+def test_capture_duplicate_action_update_existing_preserves_linked_records(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        capture = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/333333333/",
+                "source_site": "linkedin",
+                "page_title": "Original title",
+                "job_title": "Backend Engineer",
+                "company_name": "ACME Controls",
+                "location": "Boston, MA",
+                "selected_text": "Original JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/333333333/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/333333333/",
+                },
+            },
+        )
+        assert capture.status_code == 200
+        existing_id = capture.json()["job_lead"]["id"]
+
+        resume = client.post(
+            "/api/v1/resume-versions",
+            json={
+                "job_lead_id": existing_id,
+                "source_master_resume_id": "master_default",
+                "file_path": "D:/Codex/NxJob/generated/resume.docx",
+                "selected_bullets": ["bullet_1"],
+                "change_summary": "Focused on backend automation.",
+            },
+        )
+        assert resume.status_code == 200
+        resume_id = resume.json()["resume_version"]["id"]
+
+        second = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/333333333/?trackingId=xyz",
+                "source_site": "linkedin",
+                "page_title": "Updated title",
+                "job_title": "Staff Backend Engineer",
+                "company_name": "Updated Company",
+                "location": "Seattle, WA",
+                "selected_text": "Updated JD text with new details",
+                "duplicate_action": "update_existing",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/333333333/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/333333333/?trackingId=xyz",
+                },
+            },
+        )
+        read_job = client.get(f"/api/v1/job-leads/{existing_id}")
+        read_resume = client.get(f"/api/v1/resume-versions/{resume_id}")
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["job_lead"]["id"] == existing_id
+    assert body["job_lead"]["job_title"] == "Staff Backend Engineer"
+    assert body["job_lead"]["company_name"] == "Updated Company"
+    assert body["job_lead"]["jd_text"] == "Updated JD text with new details"
+    assert body["dedupe"]["action"] == "update_existing"
+    assert body["dedupe"]["requires_user_choice"] is False
+    assert body["dedupe"]["warnings"] == ["Existing JobLead has linked resume versions."]
+    assert read_job.json()["id"] == existing_id
+    assert read_resume.json()["job_lead_id"] == existing_id
+
+
+def test_capture_duplicate_action_create_new_creates_new_record(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        capture = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/444444444/",
+                "source_site": "linkedin",
+                "page_title": "Original title",
+                "job_title": "QA Engineer",
+                "company_name": "ACME Controls",
+                "location": "Boston, MA",
+                "selected_text": "Original JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/444444444/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/444444444/",
+                },
+            },
+        )
+        assert capture.status_code == 200
+        existing_id = capture.json()["job_lead"]["id"]
+
+        second = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/444444444/?trackingId=retry",
+                "source_site": "linkedin",
+                "page_title": "Updated title",
+                "job_title": "Senior QA Engineer",
+                "company_name": "Updated Company",
+                "location": "Austin, TX",
+                "selected_text": "Updated JD text with new details",
+                "duplicate_action": "create_new",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/444444444/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/444444444/?trackingId=retry",
+                },
+            },
+        )
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["job_lead"]["id"] != existing_id
+    assert body["job_lead"]["job_title"] == "Senior QA Engineer"
+    assert body["dedupe"]["is_duplicate"] is True
+    assert body["dedupe"]["existing_job_lead_id"] == existing_id
+    assert body["dedupe"]["action"] == "create_new"
+    assert body["dedupe"]["requires_user_choice"] is False
+
+
+def test_capture_default_recapture_requires_choice_when_older_same_canonical_url_has_linked_records(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("NXJOB_DB_PATH", str(tmp_path / "nxjob.sqlite3"))
+
+    with TestClient(create_app()) as client:
+        first = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/555555555/",
+                "source_site": "linkedin",
+                "page_title": "Original title",
+                "job_title": "Systems Engineer",
+                "company_name": "ACME Controls",
+                "location": "Boston, MA",
+                "selected_text": "Original JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/555555555/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/555555555/",
+                },
+            },
+        )
+        assert first.status_code == 200
+        original_id = first.json()["job_lead"]["id"]
+
+        resume = client.post(
+            "/api/v1/resume-versions",
+            json={
+                "job_lead_id": original_id,
+                "source_master_resume_id": "master_default",
+                "file_path": "D:/Codex/NxJob/generated/resume.docx",
+                "selected_bullets": ["bullet_1"],
+                "change_summary": "Focused on systems automation.",
+            },
+        )
+        assert resume.status_code == 200
+
+        create_new = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/555555555/?trackingId=create-new",
+                "source_site": "linkedin",
+                "page_title": "Retried title",
+                "job_title": "Senior Systems Engineer",
+                "company_name": "Updated Company",
+                "location": "Seattle, WA",
+                "selected_text": "Retried JD text",
+                "duplicate_action": "create_new",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/555555555/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/555555555/?trackingId=create-new",
+                },
+            },
+        )
+        assert create_new.status_code == 200
+        newer_id = create_new.json()["job_lead"]["id"]
+        assert newer_id != original_id
+
+        recapture = client.post(
+            "/api/v1/job-leads/capture",
+            json={
+                "source_url": "https://www.linkedin.com/jobs/view/555555555/?trackingId=default-recapture",
+                "source_site": "linkedin",
+                "page_title": "Default recapture title",
+                "job_title": "Principal Systems Engineer",
+                "company_name": "Third Company",
+                "location": "Austin, TX",
+                "selected_text": "Default recapture JD text",
+                "capture_metadata": {
+                    "canonical_url": "https://www.linkedin.com/jobs/view/555555555/",
+                    "raw_url": "https://www.linkedin.com/jobs/view/555555555/?trackingId=default-recapture",
+                },
+            },
+        )
+        latest_newer = client.get(f"/api/v1/job-leads/{newer_id}")
+        latest_original = client.get(f"/api/v1/job-leads/{original_id}")
+
+    assert recapture.status_code == 200
+    body = recapture.json()
+    assert body["job_lead"]["id"] == newer_id
+    assert body["dedupe"]["is_duplicate"] is True
+    assert body["dedupe"]["existing_job_lead_id"] == newer_id
+    assert body["dedupe"]["action"] == ""
+    assert body["dedupe"]["requires_user_choice"] is True
+    assert body["dedupe"]["warnings"] == ["Existing JobLead has linked resume versions."]
+    assert latest_newer.json()["job_title"] == "Senior Systems Engineer"
+    assert latest_newer.json()["jd_text"] == "Retried JD text"
+    assert latest_original.json()["job_title"] == "Systems Engineer"
+
+    db_path = tmp_path / "nxjob.sqlite3"
+    with connect(db_path) as connection:
+        total_rows = connection.execute("SELECT COUNT(*) AS count FROM job_leads").fetchone()
+
+    assert total_rows["count"] == 2
+
+
 def test_workflow_trace_is_recorded(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "nxjob.sqlite3"
     monkeypatch.setenv("NXJOB_DB_PATH", str(db_path))

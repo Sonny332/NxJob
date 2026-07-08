@@ -19,6 +19,7 @@ ApplicationStatus = Literal[
 ]
 
 SourceSite = Literal["linkedin", "indeed", "company_ats", "other"]
+DuplicateAction = Literal["", "update_existing", "create_new"]
 ApplicationMethod = Literal[
     "easy_apply",
     "external_ats",
@@ -74,6 +75,7 @@ class JobLeadCapture(BaseModel):
     page_text_excerpt: str = ""
     platform_insights: dict[str, Any] = Field(default_factory=dict)
     capture_metadata: dict[str, Any] = Field(default_factory=dict)
+    duplicate_action: DuplicateAction = ""
     search_query: str = ""
     user_notes: str = ""
 
