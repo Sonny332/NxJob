@@ -1,6 +1,6 @@
 {
   "packet_id": "TASK-000",
-  "worker_role": "Implementer / Coding Agent",
+  "worker_role": "Auxiliary Worker",
   "worker_model": "provider-alias:model-id",
   "reasoning_effort": "medium",
   "state": "completed",
@@ -25,9 +25,8 @@
   "blockers": [],
   "next_recommended_action": "Controller review handoff artifacts and assign the next packet.",
   "artifacts": {
-    "heartbeat": ".agent_tasks/status/TASK-000-heartbeat.json",
-    "implementation_report": ".agent_tasks/status/TASK-000-implementation-report.md",
-    "failure_report": ".agent_tasks/status/TASK-000-failure-report.md",
-    "human_observation": ".agent_tasks/status/TASK-000-human-observation.md"
+    "heartbeat": ".agent_tasks/TASK-000/worker_heartbeat.json",
+    "implementation_report": ".agent_tasks/TASK-000/implementation_report.md",
+    "human_observation": ".agent_tasks/TASK-000/human_observation.md"
   }
 }

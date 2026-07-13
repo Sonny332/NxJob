@@ -2,7 +2,7 @@
 
 - packet_id:
 - task_title:
-- worker_role: Implementer / Coding Agent
+- worker_role: Auxiliary Worker
 - requested_model:
 - reasoning_effort:
 - owner_controller:
@@ -10,7 +10,7 @@
 
 ## Objective
 
-State the bounded implementation outcome in 1-3 sentences.
+State the bounded auxiliary outcome in 1-3 sentences.
 
 ## Allowed Scope
 
@@ -39,10 +39,13 @@ State the bounded implementation outcome in 1-3 sentences.
 ## Output Contract
 
 - required_status_artifact:
-- required_report:
+- completed_report: implementation_report.md
+- non_completed_report: failure_report.md
 - optional_artifacts:
 
 ## Notes
 
 - Do not place secrets, API keys, cookies, browser profiles, or real user data in this packet.
 - Reference sensitive material by approved local path only when the worker is explicitly allowed to read it.
+- This packet is default-off and cannot satisfy a mandatory GPT-5.4 Implementer, Reviewer, or Release gate.
+- Permit at most one retry after packet, route, environment, or input materially changes; never auto-switch provider/model.

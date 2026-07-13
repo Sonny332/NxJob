@@ -1,248 +1,263 @@
 # NxJob Development Governance
 
-NxJob uses Agent Collaboration Model as the default development workflow. Personal MVP priorities remain valid as product and velocity context, but they do not override mandatory agent gates, review requirements, or other workflow rules defined under the collaboration model.
+## Purpose and Rule Priority
 
-## Rule Priority
+This document is the complete source of truth for NxJob task classification, agent gates, model requirements, execution limits, Git authorization, review, and handoff. `AGENTS.md` is only the concise Codex execution summary. Semantic governance changes must check whether `AGENTS.md` also needs synchronization.
 
-When rules overlap or conflict, use this order:
+When rules conflict, apply this priority:
 
-1. Safety boundaries: no automatic submission, no CAPTCHA bypass, no bulk scraping, and no no-confirmation mass applying.
-2. Privacy boundaries: real resumes, generated resumes, application records, local databases, API keys, and full PromptLog contents must stay out of GitHub, release packages, ordinary logs, and plugin-visible errors.
-3. Release quality: versioning, release checklist, installer validation, manifest/tag alignment, and release test records stay strict when preparing a versioned release.
-4. Agent Collaboration Model and mandatory agent gates: default workflow, required roles, review gates, handoff reporting, and exception handling for sub-agent failures.
-5. Personal MVP and lightweight workflow preferences: milestone, worktree, PR, and process-cost decisions should stay proportional to risk, but cannot weaken mandatory agent gates.
-6. Documentation style and process preferences can be changed when they improve MVP velocity without conflicting with the higher-priority rules above.
+1. Safety and privacy boundaries.
+2. User authorization and remote-write boundaries.
+3. Release quality and evidence requirements.
+4. Mandatory agent gates, models, and independent review.
+5. Product velocity and personal-MVP process preferences.
+6. Documentation and style preferences.
 
-## Agent Collaboration Model
+No lower-priority rule may weaken a higher-priority rule. NxJob remains Windows-first, while core business logic remains platform-neutral. Phase 1 remains REST-only. User confirmation is mandatory for form filling and application submission. Bulk scraping, automatic submission, CAPTCHA bypass, and no-confirmation mass applying are prohibited.
 
-Agent Collaboration Model is the default NxJob workflow rule set.
+## Documentation Size and Duplication Limits
 
-- The main agent / controller owns goal judgment, scope control, task splitting, acceptance criteria, and merge/release decisions.
-- Sub-agents are required by default unless the user explicitly says the current task does not need sub-agents.
-- The default NxJob development lane is:
-  - PM / Controller coordinates scope, sequencing, acceptance, and final handoff.
-  - Implementer / Coding Agent handles implementation, debugging, code mapping, tests, docs, and rules changes.
-  - Reviewer / Evaluator Agent reviews risk before completion claims, PR handoff, merge readiness, or release readiness.
-- Planner / Architect is used for new features, broad refactors, schema/architecture decisions, or release planning.
-- Do not let the controller silently absorb implementation and review work when sub-agents are required.
-- Small one-line fixes may bypass sub-agents only when the user explicitly allows it and the task is outside all mandatory gate categories.
+- `AGENTS.md`: concise Chinese-first execution entry, at most approximately 250 lines or 12 KB.
+- `docs/development-governance.md`: complete governance source, at most approximately 500 lines or 30 KB.
+- `CLAUDE.md`: self-contained external-worker entry, at most approximately 150 lines or 10 KB.
+- Do not duplicate detailed test recovery, release procedures, worker artifact schemas, or historical incidents in entry files.
+- Do not create separate governance documents for agent budget, lifecycle, review loops, or interruption handling.
+- Exceeding a limit requires explicit user approval and prior consolidation or deletion of existing material.
 
-Recommended roles for NxJob's current scale:
+## Task Classification and Minimum Gates
 
-| Role | When to use | Suggested model / effort |
+Classification uses a closed allowlist. If a task does not clearly satisfy a lower gate, use the higher applicable gate.
+
+### Controller-Direct Closed Allowlist
+
+Controller may act directly only when there is no runtime, test, user-visible, contractual, or governance semantic change. The allowlist is limited to:
+
+- documentation spelling, grammar, Markdown formatting, no-semantic-change wording reduction, and confirmed link/path/name synchronization;
+- production-code formatting, unused-import removal, comment correction, and local-variable no-semantic rename;
+- test-code formatting, comments, test-name correction, unused-import removal, and confirmed path synchronization without test-logic change;
+- read-only debugging, reproduction, log reading, call-path search, and existing-check execution;
+- allowed Git reads, `fetch`, local branch/worktree setup, and qualified local commit;
+- existing lint, type checks, project test wrappers, short-lived local build/service checks, and cleanup of temporary artifacts created by the current task.
+
+Any change to a condition, default, return, exception, assertion, fixture, mock, path, command argument, user-visible meaning, or product rule exits Controller-direct.
+
+### Implementer Only
+
+Minimum role: GPT-5.4 / Medium Implementer.
+
+Eligible only when all applicable conditions hold:
+
+- the change is local and behavior-preserving, or fixes a clearly reproduced single-module bug;
+- no external contract or mandatory Reviewer category is affected;
+- targeted automated verification is available;
+- there is no privacy, submission-confirmation, migration, installer, release, high-risk path/process, or cross-subsystem impact.
+
+Typical cases include a local behavior-preserving refactor, a clearly reproduced single-module bug with regression coverage, an ordinary documentation semantic update, a visual-only UI correction, a clearly non-semantic copy correction, a non-high-risk development-script adjustment, or an ordinary test semantic addition.
+
+### Implementer + Independent Reviewer
+
+Minimum roles:
+
+- GPT-5.4 / Medium Implementer;
+- independent GPT-5.6 Terra / High Reviewer, unless a Sol trigger applies.
+
+This gate is mandatory for:
+
+- any new user capability or UI interaction/state/form/confirmation/error/empty/loading/success behavior;
+- API, schema, database field, enum, serialization, or external-contract semantics;
+- privacy, logs, PromptLog, credentials, real data, or plugin-visible errors;
+- install, uninstall, packaging, background startup, Windows path/process arguments;
+- browser-extension permissions or manifest behavior;
+- test deletion, assertion weakening, skip, xfail, or ignore changes;
+- cross-module or incompletely understood fixes, shared/public functions, or shared components;
+- changes not reliably covered by targeted checks;
+- semantic changes to key governance, release, privacy, API, data-model, or safety documents.
+
+The independent Reviewer must be a separate agent/thread and must not modify the reviewed implementation.
+
+### Planner + Implementer + Independent Reviewer
+
+Controller, Planner, and Reviewer use GPT-5.6 Sol / High. Implementer remains GPT-5.4 / Medium.
+
+This gate is mandatory when a task:
+
+- adds, removes, or repartitions a module, service, or runtime;
+- changes responsibility or call direction across plugin, local service, API, or database;
+- affects two or more independent runtime subsystems;
+- performs a schema/database migration or existing-data compatibility, conversion, repair, or deletion;
+- changes core object relationships, state model, or data lifecycle;
+- adds a provider, platform, persistence mechanism, or data source;
+- changes a core technical boundary, including Phase 1 REST-only;
+- changes privacy, confirmation, submission, scraping, CAPTCHA, or automation boundaries;
+- changes mandatory gates, required models, approval permissions, rule priority, or source-of-truth policy;
+- has no clear single implementation approach before coding;
+- is difficult to roll back or requires staged implementation.
+
+### Formal Release
+
+Required sequence:
+
+1. GPT-5.4 / Medium Implementer.
+2. GPT-5.4 / Medium Release Agent.
+3. Independent GPT-5.6 Terra or Sol / High Reviewer.
+4. Controller recommendation.
+5. Explicit user authorization for remote publication.
+
+The Release Agent records build, artifact, installation, version, and privacy evidence. It cannot approve release readiness, modify production code, create tags, push, create GitHub Releases, or upload artifacts.
+
+## Roles, Models, and Reasoning Effort
+
+| Role | Normal task | Architecture / major-impact task |
 | --- | --- | --- |
-| PM / Controller | Default orchestration, scope, acceptance, and merge decisions | GPT-5.5 Thinking / Medium-High |
-| Planner / Architect | New feature, architectural change, large refactor, or release planning | GPT-5.5 Thinking / Medium-High |
-| Implementer | Normal code changes and tests | GPT-5.1 / Medium |
-| Reviewer / Evaluator | High-risk change, PR merge decision, or release readiness | GPT-5.5 Thinking / Medium |
-| Code Mapper | Unknown structure, broad cross-module impact, or refactor preparation | GPT-5 mini / Low |
-| Docs Agent | Focused documentation cleanup | GPT-5 mini / Low-Medium |
-| Test Agent | Focused verification or regression test expansion | GPT-5 mini / Low-Medium |
-| Release Agent | Versioned release preparation and package validation | GPT-5.1 / Medium |
-| Resume Quality Agent | Resume output quality evaluation and prompt/rule review | GPT-5.5 Thinking / Medium-High |
-| Form Answer Agent | Form-answer drafting quality checks | GPT-5 mini / Low-Medium |
+| Controller | GPT-5.6 Terra / High | GPT-5.6 Sol / High |
+| Planner / Architect | GPT-5.6 Terra / High | GPT-5.6 Sol / High |
+| Reviewer / Evaluator | GPT-5.6 Terra / High | GPT-5.6 Sol / High |
+| Implementer | GPT-5.4 / Medium | GPT-5.4 / Medium |
+| Release Agent | GPT-5.4 / Medium | GPT-5.4 / Medium |
+| Test Agent | GPT-5.4 / Medium | GPT-5.4 / Medium |
+| Code Mapper | GPT-5 mini / Low | GPT-5 mini / Low |
+| Docs Agent | GPT-5 mini / Low | GPT-5 mini / Low |
+| Form Answer Agent | GPT-5 mini / Medium | GPT-5 mini / Medium |
+| Resume Quality Agent | GPT-5.6 Terra / High | GPT-5.6 Sol / High |
 
-These model choices are recommendations, but the role workflow is mandatory by default. Prefer the minimum required sub-agent set instead of a large agent team.
+Models and reasoning effort are hard requirements. An unavailable or unconfirmed required model does not satisfy a gate. Do not silently substitute a model or reduce reasoning effort. After one targeted retry, stop and report the blocker.
 
-### Mandatory Agent Gates
+## Sol Upgrade Triggers
 
-For any task involving business code, debugging, tests, release scripts, schema, plugin UI, privacy boundaries, packaging, or versioned release work:
+Use GPT-5.6 Sol / High for Controller, Planner, and Reviewer whenever any Planner gate trigger applies. Also upgrade for major-impact privacy, safety, migration, architecture, governance-authority, release-readiness, or difficult-rollback decisions. Resume Quality Agent upgrades to GPT-5.6 Sol / High when the same major-impact triggers apply.
 
-1. PM / Controller must assign implementation or debugging to an Implementer / Coding Agent.
-2. PM / Controller must obtain a Reviewer / Evaluator pass before claiming completion.
-3. If a sub-agent tool cannot use the requested model with full-history context, PM should retry with a compact task prompt and explicit model selection instead of dropping model requirements silently.
-4. If Reviewer / Evaluator times out or fails, PM must not treat review as passed. PM must retry with a narrower review task, replace the reviewer, or report the missing review as a blocker.
-5. Exception handling under "Sub-agent Failure Handling" may unblock a specific blocker, but it does not remove the default sub-agent requirement or turn a missing Reviewer / Evaluator pass into approval.
-6. Final handoff must list each sub-agent used or skipped, including role, exact model version, reasoning effort, status, and whether the output was used.
-7. If the tool cannot confirm the exact model version for a required gate, report `unknown, not acceptable for required gate` and retry with explicit model selection instead of treating the gate as satisfied.
+## Optional Specialized Roles
 
-The only default exception is a user-explicit instruction such as "this task does not need sub-agents" or "do this directly without sub-agents."
+- **Code Mapper:** GPT-5 mini / Low, read-only. Use only when bounded search cannot find the entry point, at least three production modules may be affected, cross-layer flow must be mapped, or the user requests mapping.
+- **Test Agent:** GPT-5.4 / Medium. Use for a substantial independent test package, multi-module matrix, flaky-test investigation, complex read-only reproduction, or formal release validation.
+- **Docs Agent:** GPT-5 mini / Low. Use for multi-document consistency, index restructuring, broad link checks, or a bounded documentation package.
+- **External worker:** default-off auxiliary worker, used only by explicit request or when a bounded packet clearly lowers total cost.
 
-### Sub-agent Failure Handling
+Code Mapper, Test Agent, and Docs Agent are optional and conditional, never default gates. External workers cannot satisfy mandatory Implementer, Reviewer, or Release gates. Their output must be adopted, corrected, and verified by the required native role.
 
-Sub-agent failure handling is exception logic under Agent Collaboration Model. It cannot outrank or replace mandatory agent gates.
+## Unified Execution-Lane Budget
 
-- If a sub-agent fails, times out, or returns unusable output, record:
-  - assigned role and task;
-  - exact model version and reasoning effort, or `unknown, not acceptable for required gate` when the tool cannot confirm it for a required gate;
-  - failure mode;
-  - root cause hypothesis;
-  - mitigation used or proposed.
-- For a first occurrence, include the summary in the handoff and, when useful, add a development memory note.
-- If the same class of sub-agent failure happens twice or more, add the mitigation to this governance document.
-- If the same sub-agent or same class of sub-agent fails 3 consecutive times on the same task and same blocker, PM / Controller may decide that PM Agent directly resolves only that blocker to restore progress.
-- This 3-failure bypass is scoped to the current blocker only. After that blocker is resolved, PM / Controller must return the work to the required sub-agent workflow at the next viable step, including implementation or review gates that still apply.
-- Do not wait indefinitely. Use bounded waits, then retry with a narrower prompt, replace the agent, or stop and report the blocker.
-- Do not close a required Reviewer / Evaluator and then claim completion unless a replacement review path has passed or the missing review is explicitly called out as incomplete.
+A lane is any native Codex sub-agent or external worker; Controller is not a lane.
 
-## Personal MVP Development Context
+- Default active execution lane: 1.
+- Hard maximum active lanes: 2.
+- Project depth maximum: 1.
+- Two lanes are allowed only for independent, non-overlapping work with no ordering dependency and a clear completion-time benefit.
+- Native agents and external workers share the same budget.
+- Exceeding the task's default agent count or hard lane limit requires explicit user approval.
+- `max_threads = 2` is a ceiling, not a target.
 
-This section is product and speed context for NxJob. It is not the default workflow mode and must not be used to override Agent Collaboration Model or mandatory gates.
+| Task | Default maximum new agents |
+| --- | ---: |
+| Controller-direct | 0 |
+| Implementer only | 1 |
+| Implementer + Reviewer | 2 |
+| Planner + Implementer + Reviewer | 3, sequential |
+| Formal release | 3, sequential |
+| Optional specialized role | Only on an explicit trigger |
 
-Development priorities:
+## Agent Lifecycle, Retry, and Review Loops
 
-1. Reduce friction in real job-search and application workflows.
-2. Complete runnable, testable, end-to-end loops before expanding process.
-3. Avoid splitting small tasks into too many milestones, worktrees, PRs, or reviews.
-4. Keep engineering quality, but scale the process cost to the project size and risk.
+- Code Mapper closes when mapping is received.
+- Planner closes when design, boundaries, and acceptance criteria are received.
+- Implementer remains available through Reviewer feedback and closes after final pass.
+- Reviewer remains only when re-review is required; otherwise it closes after a clear decision.
+- Docs, Test, and Release agents close after evidence is received and recorded.
+- Unconfirmed closure is reported as `stale — closure unconfirmed` and never counts as a gate pass.
 
-## Milestone Granularity
+For each required role there are at most two total startup attempts: one normal attempt and one targeted retry after narrowing or correcting the task packet. If the second attempt fails, stop expansion and return control to the user. Failure never grants Controller new implementation, review, or release authority.
 
-Milestones should represent user-visible product progress, not internal implementation steps.
+External workers receive the same single targeted retry only after packet, route, environment, or input materially changes. There is no automatic provider/model escalation chain.
 
-Prefer 5-6 major milestone families:
+The Implementer–Reviewer loop is limited to initial review, first fix and re-review, and second fix and re-review. If the second re-review does not pass, stop and report remaining issues.
 
-- Core Capture & Local Service
-- Sponsorship & Decision Aid
-- Resume Tailor Usable Loop
-- Form Answer & Application Tracking
-- Release & Daily Use Hardening
-- Post-MVP Learning / Success Feedback
+## Interruption Checkpoint
 
-Do not create a milestone for a single UI text change, test fix, schema field, provider preset, small bug fix, or documentation correction unless it carries unusual risk.
+The Interruption Checkpoint is event-triggered only. Create one when the user requests a pause, the platform reports quota/rate/session interruption, a natural stage ends before another high-cost agent, or work cannot continue because a session or agent was interrupted.
 
-## Worktree Usage
+Record only current branch/worktree, last verified commit, changed uncommitted files, last completed verification, active/completed/stale agents, exact next action, and known blockers. Never predict quota or context limits. A checkpoint does not change acceptance criteria, reduce verification, replace review, create a premature commit, or close a useful agent.
 
-Worktrees are for isolation, not the default unit of work.
+## Worktree, PR, Git, and Command Boundaries
 
-Use a worktree for:
+| Worktree is mandatory | Worktree is not mandatory by itself |
+| --- | --- |
+| Sol-level architecture/major-impact work; migration or data conversion; formal release candidate; parallel Implementers; mutually exclusive experiments; two or more independent runtime subsystems; unsafe rollback; unsafe-to-share dirty workspace; explicit user request | Controller-direct work; read-only investigation; local single-module bug; document cleanup; local visual fix; bounded test adjustment; merely using Implementer or Reviewer |
 
-- Large feature development.
-- High-risk refactors.
-- Database or schema migrations.
-- Release candidates.
-- Parallel experiments.
-- Changes with broad rollback risk.
+| PR preparation is mandatory | PR is not automatic |
+| --- | --- |
+| Architecture/major impact; migration; privacy/safety/confirmation/automation boundary; formal release candidate; two or more runtime subsystems; parallel integration; core API or plugin/service contract; high rollback risk; remote review-history requirement; explicit user request | Local work that does not meet a PR trigger |
 
-Do not default to a worktree for:
+| Autonomous Git operations | Require explicit user approval |
+| --- | --- |
+| Status, diff, log, branch inspection; fetch and read-only remote comparison; local branch and qualified worktree creation; qualified local commit | Pull, merge, rebase; destructive reset or forced checkout; deletion of unmerged branches/worktrees; push; PR create/update; tag; GitHub Release; artifact upload |
 
-- Small bug fixes.
-- Copy or documentation changes.
-- Small UI adjustments.
-- Small test fixes.
-- Single-file low-risk changes.
+Before worktree creation, fetch and compare with the remote. Do not automatically pull. Local commit is allowed only after scoped work and mandatory gates are complete, checks pass, no out-of-scope/sensitive/user changes are mixed in, and the commit is one coherent goal.
 
-If a task does not meet the worktree threshold, use the current active branch or a lightweight branch strategy.
+| Autonomous command effects | Require explicit user approval |
+| --- | --- |
+| Read/search; existing lint/type/project test wrappers; short-lived local build/service checks; task-created temporary artifacts; local packaging tests; read-only GitHub queries | Dependency or unrelated lockfile changes; user/system environment or global-tool changes; real-data migration/deletion; non-task directory deletion; network/API writes; unapproved sandbox-external commands; Windows service/registry/scheduled-task/startup changes; formal install/update/uninstall; real-private-data testing |
 
-## PR Granularity
+Permanently prohibited: administrator/UAC/system execution; broad ACL grants; automatic job submission; CAPTCHA bypass; no-confirmation bulk scraping or applying; silent upload of resumes, databases, PromptLog, or credentials; automatic push, merge, tag, Release, or artifact upload.
 
-A PR should represent one of:
+Windows path values must be quoted and passed through `-LiteralPath`, argument arrays, or structured parameters rather than manually joined shell strings. Paths containing spaces are a required packaging/startup test case.
 
-- A user-visible value unit.
-- A high-risk technical change.
-- A release candidate.
-- An architecture change that needs explicit review.
+## Reviewer Verification
 
-Small changes can be batched into the current development unit. At handoff, report:
+Reviewer must independently inspect the actual diff, acceptance criteria, and Implementer commands/results; check for weakened assertions, changed expected values, skip/xfail abuse, and missing edge cases; and run at least one check targeted at the central risk. Reviewer does not automatically repeat the full suite.
 
-- Changed files.
-- Tests or checks run.
-- Risk notes.
-- Whether a PR is necessary.
+Critical tests must be rerun for API/schema/data, privacy/safety, install/path/process, migration, cross-module features, formal release, incomplete evidence, insufficient targeted coverage, broad regression risk, specialized-document requirements, or explicit user request.
 
-Do not open a PR by default unless the user asks, or the task clearly fits the PR threshold.
+Reviewer reports evidence reviewed, independent checks run, checks intentionally not repeated, residual risk, and one decision: `PASS`, `CHANGES_REQUIRED`, or `BLOCKED`.
 
-## Anti-over-fragmentation
+## Documentation Routing and Sources of Truth
 
-Before splitting a task, confirm the split reduces risk.
+Ordinary tasks read `AGENTS.md + 1` directly relevant specialized document. High-risk or cross-domain tasks read `AGENTS.md`, this governance document, and 1–2 directly relevant specialized documents. Do not scan all documents by default.
 
-Split only when:
+| Domain | Source of truth |
+| --- | --- |
+| Agent roles, models, gates | `docs/development-governance.md` |
+| Codex execution summary | `AGENTS.md` |
+| External-worker contract | `CLAUDE.md` plus approved task packet |
+| Safety, privacy, confirmation | `docs/privacy-boundary.md` plus governance |
+| Current MVP scope | Current sections of `docs/mvp-scope.md` |
+| Long-term product direction | `docs/product-blueprint.md` |
+| Technical boundary | `docs/tech-stack.md` |
+| API | `docs/api-schema.md` plus current shared schema/code |
+| Data model | `docs/data-model.md` plus current models/migrations |
+| UI | `docs/design.md` |
+| Release | `docs/release-checklist.md`, `docs/versioning.md`, `docs/release-hardening.md` |
+| User installation | `README.md` plus `docs/install-windows.md` |
+| Actual repository structure | Actual file tree first; `docs/project-structure.md` as description/target |
 
-- Subtasks can be independently tested.
-- Subtasks have independent user value.
-- Subtasks have independent rollback risk.
-- Subtasks involve different risk domains, such as database migration versus UI copy.
-- The user explicitly asks for phased execution.
+Historical, Future, Post-MVP, and Phase 2/3 text is not a current implementation requirement. Code does not automatically override specification, and specification does not prove implementation; report mismatches.
 
-If multiple edits serve the same user goal, prefer one coherent implementation batch.
+Windows pytest uses `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1`; detailed recovery belongs in the specialized test rules. On known ACL failures, stop repeated attempts and request only the exact wrapper sandbox exception while remaining non-admin. Never use elevation or broaden global ACLs.
 
-## Token Efficiency
+## Public Repository and Release Governance
 
-Avoid unnecessary context and planning overhead:
+NxJob is already public. Every stable release receives incremental privacy checks of the current tree, release diff, artifacts, Actions output, and user-visible errors/logs. A deep history/security audit is required only when triggered by privacy-boundary, workflow, packaging, secret, telemetry/upload, history-rewrite, repository-security-setting changes, a suspected leak, or explicit user request.
 
-- Do not repeat already established NxJob background.
-- Do not write long implementation plans for low-risk changes.
-- Do not restate stable MVP boundaries unless they affect the decision.
-- Do not rescan unrelated files.
-- Read only the smallest relevant file set before editing.
+A stable release requires all applicable automated and manual checks. Missing or incomplete evidence permits only a development build or explicitly marked pre-release. Every `N/A` entry requires a reason.
 
-Required exception: before changing architecture, schema, privacy, release, worktree, agent, or governance rules, read the relevant rule documents first.
+The formal version source is the explicit `scripts/package/build-release.ps1 -Version <version>` input. Version metadata, artifact names/content, manifest, release-test record, release notes folder, tag, and GitHub Release must match. Tags and remote publication happen only after build and validation pass and explicit user authorization.
 
-## Long-running Task and Repeated-error Handling
+## Final Handoff
 
-Long-running agent or command work must have an explicit timeout and fallback.
+Every final handoff includes these core fields:
 
-- Do not wait indefinitely for a sub-agent, test command, packaging command, or GitHub operation.
-- For normal checks, use short timeouts first. For expensive commands, state why the longer timeout is needed.
-- If a sub-agent does not return useful status within the timeout, stop waiting and inspect local state. If the sub-agent was optional, close it or continue with the controller. If the sub-agent was required, retry with a narrower task, replace it, or report the missing gate as a blocker.
-- If Codex Desktop appears stuck but no command output is changing, first read the current terminal/session state or switch away and back once to refresh the UI. Treat that as a UI recovery step, not as proof the underlying task is still working.
-- When sub-agents are used, the controller must keep a short list of active agents, their assigned role, and the last useful result. Do not let a completed implementation wait indefinitely for a review agent; use one bounded wait, then retry, replace, or report a blocked review gate. A required review timeout is not equivalent to approval.
-- When the right-side branch details or handoff summary lists sub-agents, show more than the nickname. Include the assigned role, exact model version, reasoning effort, and current state. If the exact model cannot be confirmed for a required gate, report `unknown, not acceptable for required gate` and retry with explicit model selection. Use a compact format such as `Jason — Reviewer / Evaluator — GPT-5.5 Thinking / Medium — closed after timeout`.
-- If a command fails twice with the same class of error, stop repeating it and switch to systematic debugging: identify the failing layer, form one hypothesis, and test that hypothesis with the smallest command.
-- On Windows, do not ask sub-agents or Claude workers to run raw `python -m pytest`. Follow the Windows pytest and ACL procedure below.
-- If a command appears to hang, check whether useful work has already completed before retrying. Record the last successful command and avoid rerunning broad suites unnecessarily.
-- At handoff, report any interrupted or closed sub-agents, known background processes, and whether the worktree is clean.
+- status;
+- goal and scope completed;
+- changed files;
+- verification commands actually run and results;
+- unverified or skipped checks with reasons;
+- risks and blockers;
+- Git branch/worktree, commit hash if any, and pushed/unpushed state;
+- exact next recommended action.
 
-Default timeout guidance:
+Conditional fields include agent nickname, assigned role, exact model, reasoning effort, state, whether output was used, retries, stale closures, Reviewer decision, release evidence, user authorization status, and interruption checkpoint. Unknown required model metadata is reported as `unknown, not acceptable for required gate`.
 
-- Quick file, Git, type, and unit-test checks: 30-120 seconds.
-- Local service startup, packaging, or release validation: 2-10 minutes with progress updates.
-- Sub-agent review or implementation: wait once with a bounded timeout. If the sub-agent is optional, poll or close if no status is returned. If the sub-agent is required, retry with a narrower task, replace it, or report the gate as blocked.
-- Anything still running after 30 minutes requires an explicit status update and a decision to continue, close, or replace the task path.
-
-## Windows Pytest Temporary Directory and ACL Procedure
-
-NxJob has a repository-scoped test harness for the known Python 3.14 / pytest temporary-directory ACL conflict on this Windows host. The harness is the default entry point; a raw `python -B -m pytest` command is not the NxJob default because it bypasses the approved process-local compatibility.
-
-### Execution order
-
-1. Run tests through one of these project wrappers:
-
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_pytest.ps1 <test-path> -q
-   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-local-service.ps1 <test-path> -q
-   ```
-
-   The harness disables pytest cache by default, and `test-local-service.ps1` also disables Python bytecode generation. Do not add a separate raw pytest attempt first.
-
-2. If the Codex filesystem sandbox causes `PermissionError`, `WinError 5`, `Access is denied`, `pytest-of-<username>`, or `pytest-cache-files-*`, stop repeating the same sandboxed command. Request sandbox-external execution for only the exact wrapper command.
-
-3. Sandbox-external execution must keep the current ordinary Windows user. When the privilege state is uncertain, verify that the process is not elevated before testing. Sandbox bypass does not authorize `RunAs`, an administrator terminal, UAC elevation, or a system account.
-
-4. Do not request broad approval for Python, PowerShell, or arbitrary scripts. Scope approval to the concrete wrapper command and test target.
-
-### ACL and cleanup boundaries
-
-- Never recursively grant `FullControl` to Python, the repository, the user TEMP directory, a pytest root, or a parent directory.
-- Changing `TEMP`, `TMP`, or `--basetemp` is not by itself a reliable fix because pytest may create another restrictive `0o700` directory.
-- If a failed runtime directory must be removed, do so outside the Codex sandbox under the same ordinary user. Resolve and verify the complete absolute path first, then remove only the identified pytest or NxJob test runtime directory.
-- Do not modify global Python, pytest source under `site-packages`, system ACLs, or production code.
-- `scripts/run_pytest.py` is the already-approved project-level fallback: it adjusts directory mode only inside the pytest process. Any replacement, expansion, or new compatibility wrapper requires explicit user approval.
-
-### Test report requirements
-
-Every Windows pytest report must include:
-
-- the exact wrapper command;
-- whether execution was inside or outside the Codex filesystem sandbox;
-- confirmation that the process remained under the ordinary non-admin Windows user;
-- pytest passed/failed/error counts;
-- whether test temporary directories were created and whether any were cleaned.
-
-## Windows Path Handling
-
-Windows paths with spaces are expected in this project and must be treated as a normal test case.
-
-- In PowerShell, prefer `-LiteralPath` for filesystem paths and quote path values with single quotes in commands and documentation examples.
-- In Python, Node, and PowerShell process launches, pass path arguments as argument arrays or structured parameters. Do not build one shell string that embeds unescaped path values.
-- When testing packaging, local service startup, generated resumes, or user-selected output folders, include at least one path under a profile name with spaces, such as `C:\Users\Sonny Shen\...`.
-- If a command fails only when a path contains spaces, treat it as a bug in quoting or process invocation, not as a user environment issue.
+External-worker implementation/failure reports remain separate artifacts and never replace the Controller final handoff.
 
 ## Existing Rule Handling
 
-When a similar rule already exists, merge instead of duplicating.
-
-- Keep the clearer and more specific wording.
-- Preserve stricter safety, privacy, and release requirements.
-- Rewrite over-enterprise workflow rules when they do not protect safety, privacy, or release quality.
-- If a conflict is unclear, list it for user confirmation instead of deleting a key rule.
+Merge overlapping rules instead of duplicating them. Keep the clearest specific wording and preserve stricter safety, privacy, authorization, and release requirements. Remove outdated blanket sub-agent requirements, automatic capability ladders, failure-based Controller bypasses, and detailed procedures that belong in specialized documents. When a conflict is genuinely unclear, report it for user decision rather than silently deleting a key boundary.

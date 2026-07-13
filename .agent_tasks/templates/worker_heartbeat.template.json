@@ -1,6 +1,6 @@
 {
   "packet_id": "TASK-000",
-  "worker_role": "Implementer / Coding Agent",
+  "worker_role": "Auxiliary Worker",
   "worker_model": "provider-alias:model-id",
   "reasoning_effort": "medium",
   "state": "busy",

@@ -1,136 +1,88 @@
-# Multi-Agent Development
+# External-Worker Development Contract
 
-This document defines only the execution contract for NxJob's Claude CLI + DeepSeek worker path.
+This document defines only NxJob's external-worker execution contract. `CLAUDE.md` defines worker authority; `docs/development-governance.md` defines native agent gates.
 
-Workflow authority stays in [`AGENTS.md`](../AGENTS.md) and [`docs/development-governance.md`](development-governance.md). This file does not replace reviewer gates, release rules, or agent-role requirements.
+## Activation and Authority
 
-## Scope
+- Codex is the sole Controller.
+- External workers are default-off optional auxiliaries, not the default workflow.
+- A worker runs only when the Controller approves a bounded task packet.
+- A worker cannot satisfy mandatory GPT-5.4 Implementer, independent Reviewer, or Release Agent gates.
+- Worker output must be adopted and verified by the required native role before it can support a gate.
 
-- Codex remains the controller.
-- Claude Code CLI workers execute only approved task packets.
-- DeepSeek workers are bounded implementation workers, not architecture, release, security, merge, or review agents.
-- Review, merge, push, release, and production actions remain outside worker authority.
+## Responsibilities
 
-## Roles
+The Controller:
 
-### Controller
-
-The controller:
-
-- defines scope, acceptance, and stop conditions;
-- prepares or approves task packets;
-- chooses whether to reuse a worker context or start an isolated run;
-- consumes structured worker artifacts and decides the next action;
-- keeps safety, privacy, and required reviewer gates intact;
-- applies human override when worker execution is no longer the right lane.
-
-### Worker
+- approves objective, allowed files, checks, inputs, stop conditions, and artifact paths;
+- decides whether an auxiliary worker has a clear completion benefit;
+- consumes structured artifacts and decides the next workflow step;
+- preserves safety, privacy, authorization, and native gate requirements;
+- closes the worker after its artifacts are consumed.
 
 The worker:
 
-- executes only the assigned packet;
-- keeps status observable through off-token artifacts first;
-- stops when the packet is complete, blocked, or no longer safe;
-- returns a compact handoff instead of streaming full logs.
+- performs only the approved packet;
+- edits only allowed files and runs only approved checks;
+- reports status through structured off-token artifacts;
+- stops when scope, authority, privacy, permission, product intent, or required input is unclear;
+- never claims Controller, Planner, Implementer, Reviewer, Release, security, merge, or publication authority.
 
-## Lifecycle
+## Approved Packet Lifecycle
 
-1. Packet approval: controller approves a bounded task packet.
-2. Launch: wrapper starts a worker with explicit packet scope and artifact paths.
-3. Execution: worker edits only allowed files and writes structured status.
-4. Observation: controller reads heartbeat, status, and human observation artifacts as needed.
-5. Resolution: worker ends in `completed`, `blocked`, `failed`, or an explicit controller stop.
-6. Reporting: worker emits an implementation report for completed implementation work, or a failure report for non-completed outcomes.
-7. Handoff: controller resumes from the report artifacts without replaying the session.
+1. Controller approves one bounded packet.
+2. Wrapper validates packet and artifact paths.
+3. Worker executes inside the allowed scope.
+4. Controller observes bounded heartbeat/status signals as needed.
+5. Worker reaches `completed`, `stalled`, `blocked`, or `failed`.
+6. `completed` produces only `implementation_report.md`; every other terminal state produces only `failure_report.md`.
+7. Controller consumes the report, closes the worker, and routes any remaining work through the normal native gate.
 
-## Packet Size
+Do not routinely decompose broad governance work into several external-worker packets. Broad governance belongs in the approved native Planner/Implementer/Reviewer workflow. Use an external worker only for a genuinely bounded auxiliary packet.
 
-Keep worker packets small enough to finish inside one bounded run.
+## Unified Execution-Lane Budget
 
-- Prefer one responsibility and a narrow write scope per packet.
-- Split broad governance work into separate `.agent_tasks`, `.claude/docs`, `scripts`, and review-only packets.
-- If a worker times out without a usable handoff, close it, classify the failure, and retry with a smaller packet instead of repeating the same broad prompt.
-- A smaller packet is preferred over upgrading the model when the failure class is packet size, ambiguity, or orchestration overhead.
+External workers and native Codex agents share the unified execution-lane budget:
 
-## Observable Signals
+- default active lane: 1;
+- hard maximum active lanes: 2;
+- two lanes only for independent, non-overlapping work with no ordering dependency and clear completion benefit;
+- the Controller is not a lane.
 
-Observability should be off-token first. Prefer:
+## Structured Signals and Artifacts
 
-- `worker_status.json`;
-- `worker_heartbeat.json`;
-- `implementation_report.md` or `failure_report.md`;
-- latest stream event time;
-- `git diff` growth or summary;
-- `test_output.txt` growth;
-- `blocker_kind`;
-- `failure_class`.
+Use these off-token signals:
 
-These are the default signals the controller reads. Full `worker_log.ndjson` is a diagnostic artifact, not a polling surface.
+- `worker_heartbeat.json`: optional in-progress heartbeat;
+- `worker_status.json`: required machine-readable current or terminal state;
+- `implementation_report.md`: the only report for `completed`;
+- `failure_report.md`: the only report for `stalled`, `blocked`, or `failed`;
+- `human_observation.md`: optional bounded manual evidence;
+- `test_output.txt`: approved check output when needed.
 
-Python tests should run through `scripts/run_pytest.ps1` or
-`scripts/test-local-service.ps1`. Raw `python -m pytest` is not a reliable
-worker command on the current Windows Python 3.14 host because pytest temp
-directories can be created with unusable ACLs. The wrapper also keeps SQLite
-test databases out of the repository tree, whose D-drive ACL can cause
-`sqlite3.OperationalError: disk I/O error`.
+Full `worker_log.ndjson` is diagnostic evidence, not a polling surface. Never copy secrets, private resume content, credentials, production data, or PromptLog payloads into artifacts.
 
-Avoid:
-
-- heavyweight dashboards;
-- full-log tailing by Codex;
-- conversational polling when a structured artifact can answer the question.
+Python tests use `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1`, never raw `python -m pytest`.
 
 ## Worker States
 
-Workers should report one of these states:
-
-| State | Meaning | Expected controller action |
+| State | Meaning | Controller action |
 | --- | --- | --- |
-| `busy` | Worker is making expected progress inside packet scope. | Wait within bounded time, then inspect heartbeat again. |
-| `stalled` | Worker is alive but not making useful progress because context, tooling, or ambiguity is limiting forward motion. | Inspect status and choose reuse, redirect, or escalation. |
-| `blocked` | Worker cannot continue without external input, approval, or a missing dependency. | Provide missing decision or escalate by failure class. |
-| `failed` | Worker ended unsuccessfully because execution or environment conditions broke the task path. | Inspect failure class and use escalation ladder. |
-| `completed` | Worker finished the packet and returned a handoff. | Review artifacts and decide next packet or review gate. |
+| `busy` | Worker is making expected progress in packet scope. | Wait only within the bounded observation window. |
+| `stalled` | Worker is alive but no longer making useful progress. | Stop the run and consume `failure_report.md`. |
+| `blocked` | Worker needs missing input, permission, or a human decision. | Consume `failure_report.md` and resolve outside the worker. |
+| `failed` | Execution or environment ended the worker path unsuccessfully. | Consume `failure_report.md` and classify the failure. |
+| `completed` | Worker completed the approved packet. | Consume `implementation_report.md`; do not infer a native gate pass. |
 
-## Cache-Aware Reuse And Isolation
+## Reuse, Isolation, and Retry
 
-Reuse an existing worker only when all of the following are true:
+Reuse a worker context only when the next action remains inside the same approved packet frame, files, assumptions, privacy boundary, and objective. Otherwise start an isolated run if an auxiliary worker is still justified.
 
-- the next packet stays in the same problem frame;
-- the worker's current context is still aligned with the files being changed;
-- no prior failure suggests contaminated assumptions;
-- isolation is not needed for privacy or risk reasons.
+One retry is allowed only after the packet, route, environment, or input materially changes. If that retry fails:
 
-Start an isolated worker when any of the following apply:
+- stop the external-worker path;
+- hand reliable artifacts to the Controller;
+- do not switch provider/model automatically;
+- enter the normal GPT-5.4 Implementer gate as a separate workflow if implementation is still required.
 
-- new packet, new subsystem, or new failure class;
-- prior worker is `stalled`, `blocked`, or `failed` for context-sensitive reasons;
-- manual review found drift between task packet and actual edits;
-- the controller needs a clean handoff for /goal resume.
-
-## Human Override
-
-Human override wins over worker momentum. The controller or user may stop or redirect a worker when:
-
-- packet scope is wrong;
-- safety or privacy boundaries are at risk;
-- the worker is producing noisy logs instead of structured evidence;
-- a failure class needs a different execution path;
-- the user wants direct controller handling for the next step.
-
-When override happens, record:
-
-- why the worker was interrupted;
-- what artifacts are reliable;
-- whether the next action should reuse or isolate context.
-
-## Artifact Responsibilities
-
-Use the artifact set consistently across wrapper, docs, and controller handoff:
-
-- `task_packet.md`: controller-owned bounded scope, allowed files, approved checks, and stop conditions.
-- `worker_heartbeat.json`: optional in-progress signal for bounded waiting.
-- `worker_status.json`: required machine-readable finish-or-stop state.
-- `failure_report.md`: required when the worker does not finish in `completed`.
-- `implementation_report.md`: required when the worker completes implementation work.
-- `human_observation.md`: optional manual evidence note when environment or UI observation matters.
+Worker completion cannot satisfy mandatory native gates, and retry failure never grants the Controller or worker additional authority.
