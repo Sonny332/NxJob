@@ -1,31 +1,47 @@
-# Claude Worker Entry
+# External Worker Entry
 
-本文件只做 Claude CLI worker 入口索引。主规则仍以 [`AGENTS.md`](AGENTS.md) 和 [`docs/development-governance.md`](docs/development-governance.md) 为准。
+## Authority Boundary
 
-## Controller Boundary
+- Codex is the sole Controller for NxJob.
+- An external worker is a default-off auxiliary worker and runs only an approved bounded task packet.
+- Worker output is evidence for Codex to adopt and verify; it is not a native agent gate pass.
 
-- Codex is the controller for NxJob.
-- Claude CLI workers are bounded execution lanes, not workflow authorities.
-- Workers do not act as reviewer, releaser, merger, security approver, or architecture authority.
+## Required Inputs
 
-## Read In Order
+The default read set is:
 
-1. [`AGENTS.md`](AGENTS.md)
-2. [`docs/development-governance.md`](docs/development-governance.md)
-3. [`docs/multi-agent-development.md`](docs/multi-agent-development.md)
-4. [`docs/routing-rules.md`](docs/routing-rules.md)
-5. [`docs/hooks-playbook.md`](docs/hooks-playbook.md)
-6. [`docs/handoff-template.md`](docs/handoff-template.md)
-7. [`docs/harness-lessons.md`](docs/harness-lessons.md)
-8. [`scripts/run_claude_worker.ps1`](scripts/run_claude_worker.ps1)
-9. [`scripts/run_pytest.ps1`](scripts/run_pytest.ps1)
-10. [`scripts/test-local-service.ps1`](scripts/test-local-service.ps1)
-11. [`scripts/check_hooks.ps1`](scripts/check_hooks.ps1)
+1. `CLAUDE.md`;
+2. the approved bounded task packet;
+3. only files, tests, and specialized documents named by that packet.
 
-## Worker Reminder
+Do not require the worker to read the full Codex entry or complete governance source unless the packet explicitly names a bounded excerpt.
 
-- Execute only approved task packets.
-- Stay inside approved files and approved checks.
-- Run Python tests through `scripts/run_pytest.ps1` or `scripts/test-local-service.ps1`, not raw `python -m pytest`.
-- Return compact off-token artifacts for controller handoff.
-- Stop and hand back control when packet scope, routing, privacy, or authority is unclear.
+## Allowed Work
+
+- Work only inside the packet's allowed files, commands, data, and acceptance criteria.
+- Read packet-named context, make bounded edits, run approved local checks, and return structured off-token artifacts.
+- Use the project pytest wrappers for Python tests.
+- Preserve user changes and report any overlap instead of reverting it.
+
+## Prohibited Roles and Actions
+
+An external worker cannot act as Controller, Planner, Reviewer, Release approver, merger, security approver, or substitute for the mandatory GPT-5.4 Implementer.
+
+It must not expand scope, install dependencies, access secrets or real private data, alter global configuration, elevate privileges, broaden ACLs, commit, merge, rebase, push, tag, publish a Release, upload artifacts, or perform other remote writes.
+
+## Execution-Lane and Retry Limits
+
+- External workers share the unified execution-lane budget with native agents: default active lane 1, hard maximum 2.
+- A worker receives at most one retry, and only after execution conditions materially change through a corrected packet, route, environment, or input.
+- The worker cannot auto-escalate through provider or model ladders. Provider/model changes require explicit user approval.
+
+## Testing and Artifacts
+
+- Run only packet-approved checks and list only checks actually run.
+- Run Python tests through the project pytest wrappers, never a raw pytest command.
+- Completed work returns `implementation_report.md`; blocked, failed, or otherwise incomplete work returns `failure_report.md`.
+- Keep reports compact and structured. Do not include full logs, secrets, private resume content, databases, credentials, or PromptLog payloads.
+
+## Stop and Hand Back
+
+Stop immediately and return reliable evidence to Codex when scope, privacy, permissions, product intent, authority, required input, or acceptance criteria are unclear; an allowed file is insufficient; a prohibited action would be needed; or the single eligible retry fails.

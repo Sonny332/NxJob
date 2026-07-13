@@ -1,10 +1,8 @@
-# Implementation Report Template
+# External-Worker Handoff Template
 
-Use this template for controller-facing completed-work handoff. It is designed to support `/goal` resume without replaying full logs.
+This is an external-worker artifact, not the Controller's final handoff.
 
-## Required Sections
-
-```md
+```markdown
 # Implementation Report
 
 - packet_id:
@@ -21,37 +19,18 @@ Use this template for controller-facing completed-work handoff. It is designed t
 
 ## Summary
 
-<2-6 short bullets with the most important outcomes>
-
 ## Evidence
 
-- heartbeat_artifact:
-- status_artifact:
-- human_observation_artifact:
-- diff_or_validation_artifact:
-
-## /goal Resume Seed
-
-Use this section to give the controller a compact resume point:
-
-- current_goal:
-- completed_work:
-- remaining_work:
-- decisions_already_made:
-- open_questions:
-- safe_resume_point:
-- resume_command_hint:
+## Resume Seed
 ```
 
-## Usage Notes
+## Rules
 
-- `failure_class` may be `none` when `final_state` is `completed`.
-- `changed_files` should stay scoped to the approved packet.
-- `verification` should list only checks actually run.
-- `safe_resume_point` should name the next packet or decision boundary, not a vague instruction such as "continue working".
-- `resume_command_hint` should be a short `/goal`-friendly phrase, not a long narrative.
-- Prefer artifact file references over pasted logs.
-
-## Related Artifacts
-
-This report is for completed implementation work. When the worker stops without completion, use `failure_report.md` instead and keep `/goal` resume notes inside that failure path only if the controller still needs them.
+- `completed` work uses only `implementation_report.md`.
+- `stalled`, `blocked`, `failed`, or otherwise incomplete work uses only `failure_report.md` with the same core fields.
+- `verification` lists only checks actually run and their actual results.
+- `changed_files` stays inside the approved packet.
+- `Resume Seed` names the exact safe resume point, next decision, or next native workflow; do not write only "continue".
+- Reference bounded artifacts instead of copying full logs.
+- Never include secrets, private resume content, credentials, production data, or PromptLog payloads.
+- Worker completion does not satisfy the mandatory GPT-5.4 Implementer, independent Reviewer, or Release gate.

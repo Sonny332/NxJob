@@ -2,6 +2,8 @@
 
 Use this file to capture repeated workflow failures and the lesson that should change future controller or worker behavior.
 
+External workers are default-off auxiliaries. They cannot satisfy mandatory GPT-5.4 Implementer, Reviewer, or Release gates.
+
 ## Entry Format
 
 Add a short section per repeated lesson using this template:
@@ -50,10 +52,11 @@ If the same class repeats enough to change workflow expectations, also update:
 - trigger: assigning one worker a broad stabilization packet covering `.agent_tasks`, `.claude`, docs, scripts, and validation checks.
 - symptoms: worker remained `running` past bounded waits and produced no usable diff or handoff artifact.
 - root_cause_hypothesis: the task packet was too broad for reliable bounded worker execution and encouraged excessive repo reading before action.
-- mitigation: close stale worker, split into smaller packets by write scope, and retry with a narrower implementer task.
-- prevention_update: future worker packets should own a small file group or a single responsibility; broad governance passes should be decomposed into `.agent_tasks`, `.claude/docs`, `scripts`, and review-only packets.
+- mitigation: historical action was to close the stale worker, split by write scope, and retry with a narrower auxiliary packet.
+- prevention_update: superseded. Broad governance work now stays in the native planned workflow; do not routinely decompose it into `.agent_tasks`, `.claude/docs`, `scripts`, and review-only external-worker packets.
 - artifact_examples: sub-agent timeout during worker orchestration stabilization; no secrets or full logs retained.
-- status: confirmed
+- status: superseded
+- resume_impact: use an external worker only for a default-off bounded auxiliary packet; native mandatory gates remain separate.
 
 ## 2026-05-24 windows-python314-pytest-temp-acl
 

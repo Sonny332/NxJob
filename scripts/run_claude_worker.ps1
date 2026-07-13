@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Runs a bounded Claude worker packet, or previews the invocation with -DryRun.
+Runs a bounded auxiliary Claude worker packet, or previews the invocation with -DryRun.
 
 .DESCRIPTION
 TaskId and PromptFile are intentionally required, including for -DryRun. A dry
@@ -8,7 +8,7 @@ run still validates that the prompt file is inside `.agent_tasks/<TaskId>/` and
 writes only ignored runtime artifacts under that task directory.
 
 .EXAMPLE
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_claude_worker.ps1 -TaskId verify-workflow-stabilization -PromptFile .agent_tasks\verify-workflow-stabilization\prompt.txt -ModelTier flash -WorkerRole "Implementer / Coding Agent" -ReasoningEffort medium -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_claude_worker.ps1 -TaskId verify-workflow-stabilization -PromptFile .agent_tasks\verify-workflow-stabilization\prompt.txt -ModelTier flash -WorkerRole "Auxiliary Worker" -ReasoningEffort medium -DryRun
 #>
 
 param(
@@ -16,7 +16,7 @@ param(
   [Parameter(Mandatory = $true)][string]$PromptFile,
   [string]$ModelTier = "default",
   [string]$ModelId = "",
-  [string]$WorkerRole = "Implementer / Coding Agent",
+  [string]$WorkerRole = "Auxiliary Worker",
   [string]$ReasoningEffort = "medium",
   [switch]$DryRun,
   [ValidateRange(1, 3600)][int]$HeartbeatIntervalSeconds = 10,
@@ -168,6 +168,74 @@ function ConvertTo-SafeLogLine {
   }
 }
 
+function Get-ReportField {
+  param(
+    [Parameter(Mandatory = $true)][string]$LiteralPath,
+    [Parameter(Mandatory = $true)][string]$FieldName
+  )
+
+  $pattern = '^\s*-\s*' + [regex]::Escape($FieldName) + '\s*:\s*(.*?)\s*$'
+  foreach ($line in Get-Content -LiteralPath $LiteralPath -Encoding UTF8) {
+    if ($line -match $pattern) {
+      return $Matches[1].Trim()
+    }
+  }
+
+  return $null
+}
+
+function Resolve-TerminalArtifact {
+  $hasImplementationReport = Test-Path -LiteralPath $implementationReportPath -PathType Leaf
+  $hasFailureReport = Test-Path -LiteralPath $failureReportPath -PathType Leaf
+
+  if ($hasImplementationReport -eq $hasFailureReport) {
+    $reason = if ($hasImplementationReport) { "Both terminal reports exist." } else { "No terminal report exists." }
+    return [pscustomobject]@{
+      valid = $false
+      state = "failed"
+      failure_class = "artifact_contract"
+      message = $reason
+    }
+  }
+
+  if ($hasImplementationReport) {
+    $finalState = Get-ReportField -LiteralPath $implementationReportPath -FieldName "final_state"
+    if ($finalState -ne "completed") {
+      return [pscustomobject]@{
+        valid = $false
+        state = "failed"
+        failure_class = "artifact_contract"
+        message = "implementation_report.md requires final_state: completed."
+      }
+    }
+
+    return [pscustomobject]@{
+      valid = $true
+      state = "completed"
+      failure_class = $null
+      message = "Worker completed with implementation_report.md."
+    }
+  }
+
+  $finalState = Get-ReportField -LiteralPath $failureReportPath -FieldName "final_state"
+  if ($finalState -notin @("stalled", "blocked", "failed")) {
+    return [pscustomobject]@{
+      valid = $false
+      state = "failed"
+      failure_class = "artifact_contract"
+      message = "failure_report.md requires final_state: stalled, blocked, or failed."
+    }
+  }
+
+  $failureClass = Get-ReportField -LiteralPath $failureReportPath -FieldName "failure_class"
+  return [pscustomobject]@{
+    valid = $true
+    state = $finalState
+    failure_class = if ([string]::IsNullOrWhiteSpace($failureClass)) { $null } else { $failureClass }
+    message = "Worker ended as $finalState with failure_report.md."
+  }
+}
+
 function Write-Status {
   param(
     [Parameter(Mandatory = $true)][string]$State,
@@ -177,6 +245,22 @@ function Write-Status {
     [string]$Message = "",
     [hashtable]$Extra = @{}
   )
+
+  $artifacts = [ordered]@{
+    task_packet = $taskPacketPath
+    status = $statusPath
+    heartbeat = $heartbeatPath
+    human_observation = $humanObservationPath
+    log = $logPath
+    error = $errorPath
+    test_output = $testOutputPath
+  }
+  if ($State -eq "completed") {
+    $artifacts["implementation_report"] = $implementationReportPath
+  }
+  elseif ($State -in @("failed", "blocked", "stalled")) {
+    $artifacts["failure_report"] = $failureReportPath
+  }
 
   $status = [ordered]@{
     packet_id = $TaskId
@@ -205,17 +289,7 @@ function Write-Status {
     summary = @()
     changed_files = @(Get-ChangedFiles)
     verification = @()
-    artifacts = [ordered]@{
-      task_packet = $taskPacketPath
-      status = $statusPath
-      heartbeat = $heartbeatPath
-      failure_report = $failureReportPath
-      implementation_report = $implementationReportPath
-      human_observation = $humanObservationPath
-      log = $logPath
-      error = $errorPath
-      test_output = $testOutputPath
-    }
+    artifacts = $artifacts
   }
 
   foreach ($key in $Extra.Keys) {
@@ -243,7 +317,7 @@ function Write-Heartbeat {
     worker_role = $WorkerRole
     worker_model = if ([string]::IsNullOrWhiteSpace($ModelId)) { $ModelTier } else { $ModelId }
     reasoning_effort = $ReasoningEffort
-    state = if ($Phase -eq "completed" -or $Phase -eq "dry-run") { "completed" } elseif ($Phase -eq "failed") { "failed" } else { "busy" }
+    state = if ($Phase -eq "completed" -or $Phase -eq "dry-run") { "completed" } elseif ($Phase -in @("stalled", "blocked", "failed")) { $Phase } else { "busy" }
     phase = $Phase
     dry_run = [bool]$DryRun
     updated_at = Get-UtcTimestamp
@@ -435,6 +509,12 @@ if ($DryRun) {
   exit 0
 }
 
+foreach ($terminalReportPath in @($implementationReportPath, $failureReportPath)) {
+  if (Test-Path -LiteralPath $terminalReportPath -PathType Leaf) {
+    Remove-Item -LiteralPath $terminalReportPath -Force
+  }
+}
+
 if (Test-Path -LiteralPath $stdoutCapturePath) {
   Remove-Item -LiteralPath $stdoutCapturePath -Force
 }
@@ -519,16 +599,16 @@ try {
     $lastErrorAt = Get-UtcTimestamp
   }
 
-  Write-Heartbeat -Phase "completed" -ProcessId $claudeProcess.Id -OutputLines $stdoutLineCount -ErrorLines $errorLineCount -LastOutputAt $lastOutputAt -LastErrorAt $lastErrorAt -LastDiffAt $lastDiffAt -LastTestOutputAt $lastTestOutputAt -LastProgressSignal $lastProgressSignal
-  Write-LogEvent -Type "wrapper.completed" -Payload ([ordered]@{
-    pid = $claudeProcess.Id
-    exit_code = $claudeProcess.ExitCode
-    output_lines = $stdoutLineCount
-    error_lines = $errorLineCount
-  })
-
-  if ($claudeProcess.ExitCode -ne 0) {
-    Write-Status -State "failed" -Phase "completed" -ProcessId $claudeProcess.Id -ExitCode $claudeProcess.ExitCode -Message "Claude worker process exited with a non-zero exit code." -Extra @{
+  $terminal = Resolve-TerminalArtifact
+  if (-not $terminal.valid) {
+    $artifactExitCode = 2
+    Write-Heartbeat -Phase "failed" -ProcessId $claudeProcess.Id -OutputLines $stdoutLineCount -ErrorLines $errorLineCount -LastOutputAt $lastOutputAt -LastErrorAt $lastErrorAt -LastDiffAt $lastDiffAt -LastTestOutputAt $lastTestOutputAt -LastProgressSignal $lastProgressSignal
+    Write-LogEvent -Type "wrapper.artifact_contract_failed" -Payload ([ordered]@{
+      pid = $claudeProcess.Id
+      process_exit_code = $claudeProcess.ExitCode
+      message = $terminal.message
+    })
+    Write-Status -State "failed" -Phase "failed" -ProcessId $claudeProcess.Id -ExitCode $artifactExitCode -Message $terminal.message -Extra @{
       output_lines = $stdoutLineCount
       error_lines = $errorLineCount
       last_output_at = $lastOutputAt
@@ -536,13 +616,21 @@ try {
       last_diff_at = $lastDiffAt
       last_test_output_at = $lastTestOutputAt
       last_progress_signal = $lastProgressSignal
-      failure_class = "environment_runtime"
-      blocker_kind = "process_exit"
+      failure_class = "artifact_contract"
+      blocker_kind = "terminal_report"
     }
-    exit $claudeProcess.ExitCode
+    exit $artifactExitCode
   }
 
-  Write-Status -State "completed" -Phase "completed" -ProcessId $claudeProcess.Id -ExitCode 0 -Message "Claude worker process completed successfully." -Extra @{
+  Write-Heartbeat -Phase $terminal.state -ProcessId $claudeProcess.Id -OutputLines $stdoutLineCount -ErrorLines $errorLineCount -LastOutputAt $lastOutputAt -LastErrorAt $lastErrorAt -LastDiffAt $lastDiffAt -LastTestOutputAt $lastTestOutputAt -LastProgressSignal $lastProgressSignal
+  Write-LogEvent -Type "wrapper.terminal" -Payload ([ordered]@{
+    pid = $claudeProcess.Id
+    process_exit_code = $claudeProcess.ExitCode
+    final_state = $terminal.state
+    output_lines = $stdoutLineCount
+    error_lines = $errorLineCount
+  })
+  Write-Status -State $terminal.state -Phase $terminal.state -ProcessId $claudeProcess.Id -ExitCode $claudeProcess.ExitCode -Message $terminal.message -Extra @{
     output_lines = $stdoutLineCount
     error_lines = $errorLineCount
     last_output_at = $lastOutputAt
@@ -550,8 +638,11 @@ try {
     last_diff_at = $lastDiffAt
     last_test_output_at = $lastTestOutputAt
     last_progress_signal = $lastProgressSignal
-    failure_class = $null
+    failure_class = $terminal.failure_class
     blocker_kind = $null
+  }
+  if ($claudeProcess.ExitCode -ne 0) {
+    exit $claudeProcess.ExitCode
   }
 }
 catch {

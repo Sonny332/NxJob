@@ -2,6 +2,8 @@
 
 Hooks are optional enhancements around worker execution. They do not replace the wrapper.
 
+The wrapper launches only a Controller-approved, default-off auxiliary worker. Wrapper or hook output cannot satisfy mandatory GPT-5.4 Implementer, Reviewer, or Release gates.
+
 ## Wrapper Primary
 
 Use the wrapper as the primary control surface for:
@@ -45,6 +47,7 @@ Hooks are risky as the primary mechanism because they can be:
 - Do not rely on hooks for full-log tailing or dashboard streaming.
 - Do not let hook failure silently turn a blocked worker into a completed worker.
 - Do not let hook failure overwrite wrapper-owned final status.
+- Keep terminal reports exclusive: `completed` uses only `implementation_report.md`; `stalled`, `blocked`, or `failed` uses only `failure_report.md`.
 - Keep hook output small and structured.
 
 ## Headless Prompt Privacy Caveat
@@ -74,7 +77,7 @@ If a hook fails, classify it under `artifact_contract` or `environment_runtime` 
 Use the complete command form:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_claude_worker.ps1 -TaskId verify-workflow-stabilization -PromptFile .agent_tasks\verify-workflow-stabilization\prompt.txt -ModelTier flash -WorkerRole "Implementer / Coding Agent" -ReasoningEffort medium -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_claude_worker.ps1 -TaskId verify-workflow-stabilization -PromptFile .agent_tasks\verify-workflow-stabilization\prompt.txt -ModelTier flash -WorkerRole "Auxiliary Worker" -ReasoningEffort medium -DryRun
 ```
 
 Do not treat `scripts\run_claude_worker.ps1 -DryRun` without a task id and prompt file as a valid check.

@@ -39,22 +39,21 @@ The release folder is the source of truth for GitHub Release uploads:
 releases/<version>/
 ```
 
-Before publishing, confirm `release-manifest.json` points to the same commit as tag `v<version>`.
+Before recommending publication, confirm `release-manifest.json` points to the same commit intended for tag `v<version>`. The explicit `build-release.ps1 -Version <version>` argument is the formal version input.
 
 If the release build requires a packaging-script fix, commit the fix first, rebuild the release folder, then tag the new commit.
 
-## Public Repository Gate
+## Incremental Privacy Check
 
-Before changing repository visibility to public, treat public exposure as a separate release gate. Public repositories expose code, release assets, pull requests, issues, and GitHub Actions logs to anyone who can visit GitHub.
+NxJob is already public. Every release must inspect the current tracked tree, release diff, generated artifacts, current Actions/workflow output, and user-visible logs/errors for private resume data, API keys, local databases, PromptLogs, generated resumes, recruiter replies, real application records, sensitive paths, and user-specific configuration.
 
-Required checks:
+Confirm the release package excludes private config, local app data, caches, source-control metadata, and other unapproved data. Record the actual evidence in the release test record. This check is incremental to the current candidate and does not claim a full-history audit.
 
-- Scan tracked files and Git history for private resume data, API keys, local databases, PromptLogs, generated resumes, recruiter replies, and real application records.
-- Inspect GitHub Actions history and artifacts for sensitive paths, tokens, private JD/resume content, and user-specific logs.
-- Confirm the release package excludes private config, local app data, cache folders, and source-control metadata.
-- Enable or explicitly record the status of secret scanning and push protection.
-- Review branch protection and fork pull-request settings before opening the repository.
-- Confirm README and GitHub Release copy direct users to the packaged installer zip rather than the automatic source archive.
+## Triggered Deep Audit
+
+Run a deep audit only when triggered by a privacy-boundary, workflow, packaging, secret-handling, telemetry/upload, history-rewrite, repository-security-setting change, a suspected leak, or explicit user request.
+
+Scope the audit to the trigger and inspect relevant Git history, historical Actions logs/artifacts, PRs, issues, comments, repository security settings, and secret rotation status. Record the trigger, scope, findings, remediation, and result. A deep audit is not a routine substitute for the per-release Incremental Privacy Check.
 
 ## Local Service Package Contract
 

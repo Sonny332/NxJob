@@ -1,52 +1,92 @@
 # Release Test Record
 
-Use this file as the template for each release. Copy it into the release notes or attach it to the GitHub release.
+Use this evidence template for every versioned build. Blank or partially completed records cannot support a stable release.
 
-## Version
+## Evidence Format
 
-- Version:
+Every check records exactly one status with concrete evidence or reason:
+
+- `PASS — <evidence>`
+- `FAIL — <evidence>`
+- `BLOCKED — <reason>`
+- `N/A — <reason>`
+
+An empty field is not `N/A`. Do not report checks that were not run as passing.
+
+## Release Identity
+
+- Explicit version input (`build-release.ps1 -Version <version>`):
 - Commit:
+- Release type (`stable` or `pre-release`):
 - Date:
-- Tester:
+- Release Agent:
+- Candidate worktree/branch:
+
+## Exact Commands
+
+- Build command:
+- Build result:
+- Validation command:
+- Validation result:
+- Additional automated commands and results:
 
 ## Artifacts
 
-- One-click Windows package:
-- Local service package:
-- Browser extension package:
-- Release manifest:
+- `NxJob-<version>.zip`:
+- `nxjob-local-service-<version>.zip`:
+- `nxjob-extension-<version>.zip`:
+- `release-manifest.json`:
+- `release-test-record-<version>.md`:
+- Metadata, artifact, manifest, record, notes-folder, and version-input agreement:
+- Candidate commit and manifest commit agreement:
 
-## Checks
+## Automated Validation
 
-- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local-service.ps1`:
-- `npm run shared:check`:
-- `npm run extension:typecheck`:
-- `npm run extension:build`:
-- `scripts/package/build-release.ps1`:
-- `scripts/package/validate-release.ps1`:
+- Shared schema check:
+- Extension typecheck:
+- Extension build:
+- Local-service project pytest wrapper:
+- Release validator:
+- Other applicable checks:
 
-## Manual Smoke Test
+## Windows Local-Service Package
 
-- Local service install script completed:
-- `Install NxJob Local Service.bat` completes:
-- `Start NxJob Local Service.bat` starts the service:
-- `Check NxJob Local Service.bat` returns ok:
-- `Status NxJob Local Service.bat` reports healthy:
-- Browser extension loads:
-- Analyze Sponsorship button works:
-- Tailor Resume button creates a DOCX:
-- Fill Form Answer drafts and fills only after confirmation:
-- Outcome entry creates SuccessReference:
-- `Stop NxJob Local Service.bat` stops the service:
-- `Uninstall NxJob Local Service.bat` removes service files:
+- Path-with-spaces test path:
+- Path-with-spaces result:
+- Install result:
+- Start result:
+- Health result:
+- Status result:
+- Stop result:
+- Uninstall result:
+- Root-level launcher result:
 
-## Data Boundary
+## Extension and Workflow Smoke Tests
 
-- Real master resume is local only:
-- `private/` not included in Git diff:
-- Generated resumes not included in Git diff:
-- SQLite database not included in Git diff:
-- Release zips do not contain private data:
+- Extension package load:
+- Analyze Sponsorship affected flow:
+- Tailor Resume affected flow:
+- Fill Form Answer affected flow and confirmation boundary:
+- Application/outcome affected flow:
+- Other affected workflow:
+
+## Privacy Evidence
+
+- Incremental Privacy Check result:
+- Current tree and release diff evidence:
+- Artifact-content evidence:
+- Current Actions/workflow output evidence:
+- User-visible log/error evidence:
+- Deep audit trigger (`none` or reason):
+- Triggered Deep Audit scope/result (`N/A — no trigger` or evidence):
+
+## Review and Publication
+
+- Independent Reviewer decision:
+- Controller recommendation:
+- Remote publication authorization status:
+- Authorized actions, if any:
+- Tag/push/GitHub Release/upload status:
 
 ## Version Differences
 
@@ -54,3 +94,11 @@ Use this file as the template for each release. Copy it into the release notes o
 - Changed:
 - Fixed:
 - Known limits:
+
+## Stable Release Decision
+
+- All applicable automated checks complete:
+- All applicable manual checks complete:
+- All `N/A` entries include reasons:
+- Evidence record complete:
+- Final release decision (`stable`, `pre-release`, or development build):
