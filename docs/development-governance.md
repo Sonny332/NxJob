@@ -209,6 +209,147 @@ Critical tests must be rerun for API/schema/data, privacy/safety, install/path/p
 
 Reviewer reports evidence reviewed, independent checks run, checks intentionally not repeated, residual risk, and one decision: `PASS`, `CHANGES_REQUIRED`, or `BLOCKED`.
 
+## Phase-Specific Skill Gates
+
+### Superpowers Feature and Bug Workflows
+
+Superpowers is a phase-specific workflow gate, not a new agent role. It never replaces NxJob Planner, Implementer, Reviewer, Release, privacy, authorization, or user-confirmation requirements.
+
+Formal feature-development triggers include:
+
+- adding a new user-facing feature;
+- materially changing existing behavior;
+- multi-step or cross-module implementation;
+- architecture, schema, state-model, data-flow, privacy, or compatibility changes;
+- requirements with multiple reasonable implementation approaches; or
+- work explicitly classified as formal feature development.
+
+Default feature workflow:
+
+`brainstorming → user-approved design → writing-plans → executing-plans or subagent-driven-development → verification-before-completion → required NxJob Reviewer Gate`
+
+Bug fixes use the applicable debugging workflow instead:
+
+`systematic-debugging → root-cause confirmation → test-driven-development where applicable → implementation → verification-before-completion → Reviewer Gate when required by the task matrix`
+
+The complete feature workflow is not required for Controller-direct mechanical changes, read-only investigation, spelling/formatting/non-semantic documentation changes, a narrowly scoped fix already covered by an approved implementation plan, or a local correction explicitly requested by a Reviewer. These are workflow exemptions only and do not weaken any mandatory gate.
+
+### Ponytail Gate Conditions, Prohibitions, and Exclusions
+
+Ponytail is advisory, read-only, and default-off. Invoke it explicitly as `@ponytail-review`.
+
+Ponytail must not:
+
+- modify code directly;
+- satisfy the mandatory NxJob Reviewer Gate;
+- approve merge or release;
+- override architecture, privacy, security, compatibility, schema, state-model, user-confirmation, or release rules; or
+- automatically trigger implementation of its recommendations.
+
+Ponytail may run only after all of the following are true:
+
+- a feature was added or materially changed;
+- development occurred on a feature branch or isolated worktree;
+- automated verification passed;
+- the mandatory NxJob Reviewer passed;
+- the user completed manual testing and confirmed the feature behavior; and
+- the branch has not yet been merged or formally released.
+
+Controller-direct work, pure documentation changes, read-only investigation, ordinary local bug fixes without a feature branch, Reviewer follow-up fixes, and release operations themselves do not trigger the Ponytail gate.
+
+### Ponytail Baseline and Scope
+
+The default Ponytail scope is the complete feature-branch or worktree diff relative to the exact recorded baseline commit. When a qualifying feature branch or worktree is created, record in the task handoff or Interruption Checkpoint:
+
+- `Base branch: <branch>`
+- `Baseline commit: <full commit SHA>`
+- `Feature branch: <branch>`
+- `Baseline status: recorded`
+
+Run Ponytail against the full branch history:
+
+`git diff <baseline-commit>...HEAD`
+
+Do not limit Ponytail to staged, unstaged, or otherwise uncommitted working-tree changes. Later updates to the base branch do not redefine the recorded baseline.
+
+If the original baseline record is missing:
+
+1. compute a candidate with `git merge-base`;
+2. mark it as `inferred baseline`;
+3. request user confirmation before running Ponytail; and
+4. do not silently assume the current local or remote main branch was the original baseline.
+
+### Ponytail Finding Intake and Disposition
+
+Every Ponytail finding first enters `superpowers:receiving-code-review`, then is reclassified under the NxJob task matrix.
+
+Disposition values:
+
+- `ACCEPT_SAFE`: clearly redundant and removable without behavior change;
+- `ACCEPT_WITH_REVIEW`: valuable simplification that affects shared or important code;
+- `RECLASSIFY`: actually affects architecture, API, schema, privacy, compatibility, state, or another higher-risk area;
+- `REJECT_GOVERNANCE`: apparently redundant code is required by governance, privacy, safety, compatibility, or user-control rules;
+- `REJECT_LOW_VALUE`: possible reduction exists, but value is lower than regression or maintenance risk; and
+- `USER_DECISION`: the suggestion is a product or architecture trade-off requiring user judgment.
+
+Ponytail output is evidence, not an instruction to delete code.
+
+### Post-Finding Flows and Review Limits
+
+For clearly behavior-preserving cleanup:
+
+`receiving-code-review → original Implementer applies accepted changes → targeted verification → verification-before-completion → independent Reviewer re-review`
+
+A full new brainstorming and planning cycle is not required for obvious dead code, unused imports, temporary debugging code, strictly equivalent standard-library replacements, or fully duplicated local logic.
+
+For findings that may affect behavior, shared boundaries, fallbacks, error handling, or compatibility:
+
+`receiving-code-review → impact investigation or systematic-debugging → reclassification under the NxJob task matrix → required Implementer and Reviewer flow → targeted user retesting when applicable`
+
+For architecture, schema, privacy, state-model, compatibility, user-confirmation, or major framework changes, treat the proposal as a new formal task:
+
+`brainstorming → user-approved design → writing-plans → controlled implementation → verification-before-completion → required Terra or Sol Reviewer Gate`
+
+Each qualifying feature branch receives one full Ponytail review by default. Do not create an automatic `Ponytail → cleanup → Ponytail → cleanup` loop.
+
+A second full Ponytail review is allowed only when:
+
+- the cleanup itself caused a substantial structural change;
+- the first review was intentionally processed in stages and the remaining diff materially changed;
+- the independent Reviewer identifies evidence that cleanup introduced new duplication or temporary compatibility code; or
+- the user explicitly requests another review.
+
+Correctness after accepted cleanup is established through Superpowers, automated verification, and the independent NxJob Reviewer, not by repeated Ponytail invocation.
+
+### Verification, Retesting, and Final Handoff Evidence
+
+After accepted Ponytail changes:
+
+- run targeted automated verification;
+- use `verification-before-completion`;
+- obtain an independent Reviewer result; and
+- do not weaken, delete, skip, or rewrite tests merely to accommodate cleanup.
+
+Targeted user retesting is required when cleanup touches user-visible execution paths, UI behavior or state, plugin or local-service interaction, resume generation, form-answer behavior, application tracking, or startup, installer, packaging, or path behavior.
+
+Repeat full user acceptance when cleanup changes product behavior, core state semantics, privacy boundaries, compatibility, or user-confirmation behavior.
+
+Do not commit the complete raw Ponytail report by default. Record concise handoff evidence only:
+
+- `Ponytail review scope`
+- `Base branch`
+- `Baseline commit`
+- `Reviewed HEAD`
+- `Review status`
+- finding counts or summaries for `ACCEPT_SAFE`, `ACCEPT_WITH_REVIEW`, `RECLASSIFY`, `REJECT_GOVERNANCE`, `REJECT_LOW_VALUE`, and `USER_DECISION`
+- accepted changes
+- rejected findings and reasons
+- verification after cleanup
+- independent Reviewer result
+- user retesting status
+
+Keep full raw Ponytail output only as a temporary artifact when it has clear audit value.
+
 ## Documentation Routing and Sources of Truth
 
 Ordinary tasks read `AGENTS.md + 1` directly relevant specialized document. High-risk or cross-domain tasks read `AGENTS.md`, this governance document, and 1–2 directly relevant specialized documents. Do not scan all documents by default.
