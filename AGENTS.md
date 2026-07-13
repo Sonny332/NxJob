@@ -67,6 +67,16 @@
 - 未确认关闭标记为 `stale — closure unconfirmed`，不得算作 gate pass。
 - Code Mapper、Test Agent、Docs Agent 是按条件启用的可选角色，不是默认 gate；external worker 是 default-off auxiliary worker，不能替代必需角色。
 
+## Phase-Specific Skill Gates
+
+- Superpowers 是阶段性 workflow gate，不是新角色；正式 feature 开发默认走 `brainstorming → 用户批准设计 → writing-plans → executing-plans 或 subagent-driven-development → verification-before-completion → NxJob 必需 Reviewer Gate`。
+- bugfix 默认走 `systematic-debugging → 根因确认 → 适用时 test-driven-development → 实现 → verification-before-completion → 按治理矩阵决定是否进 Reviewer Gate`。
+- 下列情形不要求完整 feature workflow：Controller-direct 机械改动、只读调查、拼写/格式/无语义文档修改、已批准计划覆盖的窄修复、Reviewer 明确要求的局部跟进修复。
+- Superpowers 不替代现有 Planner、Implementer、Reviewer、Release、隐私、授权或用户确认 gate；豁免只影响 workflow，不降低既有 gate。
+- Ponytail 默认关闭；仅作 advisory、read-only 的简化审查，不能直接改代码，不能替代 Reviewer，不能批准 merge 或 release，也不能覆盖架构、隐私、安全、兼容性、schema、状态模型或用户确认规则。
+- 仅当功能已在 feature branch 或隔离 worktree 上完成、自动验证通过、NxJob 必需 Reviewer 已通过、用户手测确认行为正确、且尚未 merge 或正式 release 时，才可显式运行 `@ponytail-review`。
+- Controller-direct、纯文档、只读调查、无 feature branch 的普通本地 bugfix、Reviewer 跟进修复以及 release 操作本身默认不触发 Ponytail Gate；完整规则、baseline 记录和 finding 处置见 `docs/development-governance.md`。
+
 ## Git、命令与用户授权
 
 - 可自主执行：读取/搜索、既有检查、`git status/diff/log/fetch`、只读远端比较、合格的本地 branch/worktree/commit、短时本地 build/service/package 检查及清理本任务临时产物。
