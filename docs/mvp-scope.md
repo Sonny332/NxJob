@@ -5,7 +5,7 @@
 NxJob MVP proves the smallest useful loop:
 
 ```text
-Capture JD -> Analyze Sponsorship -> Tailor Resume -> Draft Form Answer -> Record Application -> Record Positive Outcome -> Reuse Success Reference
+Capture JD -> Analyze Sponsorship -> Tailor Resume -> Find Form Answers -> Record Application -> Record Positive Outcome -> Reuse Success Reference
 ```
 
 The MVP is a lightweight browser-extension-driven assistant, not a job discovery platform.
@@ -17,8 +17,8 @@ User layer:
 - Browser extension with three buttons:
   - `Analyze Sponsorship`
   - `Tailor Resume`
-  - `Fill Form Answer`
-- User review and confirmation before applying or filling answers.
+  - `Find Form Answers`
+- User review and confirmation before applying, copying answers, or saving confirmed answers. Current ATS form handling is browser-local: it recognizes questions, matches saved answers, and supports copy/save only.
 - Visible local service connection status.
 
 Local runtime layer:
@@ -29,7 +29,7 @@ Local runtime layer:
 - JobLead capture and dedupe by URL/hash.
 - Sponsorship evidence record.
 - DOCX resume generation.
-- Form answer draft storage.
+- Local saved answer library in browser storage.
 - Application and outcome tracking.
 - SuccessReference creation for positive replies, screens, interviews, and offers.
 
@@ -37,7 +37,6 @@ AI layer:
 
 - Sponsorship fallback only when JD and local rules are insufficient.
 - Resume content selection and rewrite.
-- Complex form answer drafting.
 - Master Resume Builder is documented as a future helper flow; MVP runtime uses validated JSON only.
 
 ## Out of Scope for MVP
@@ -76,12 +75,12 @@ The detailed M0-M8 list below records the historical build plan and can still be
 
 Current MVP closure line:
 
-- `0.6.0 Capture & Form Reliability`: stabilize structured job title/company capture, user-readable artifact filenames, and field-specific form answer drafting.
+- `0.6.0 Capture & Form Reliability`: stabilize structured job title/company capture, user-readable artifact filenames, and field recognition reliability.
 - `0.7.0 MVP Closure & Daily Use Hardening`: finish daily-use polish, release validation, and any remaining blocker fixes before treating the project as MVP-complete.
 
 These improvements are important but are not required before 0.7.0 MVP closure:
 
-- Expand Fill Form Answer into a guided one-click full-form workflow for text fields, single-select, multi-select, radio buttons, and checkboxes while keeping final submission manual.
+- Expand Find Form Answers into a guided fill workflow only after recognition accuracy and saved-answer reuse are proven reliable.
 - Improve Tailor Resume line utilization and bullet density, with special attention to free Gemini API behavior while keeping other OpenAI-compatible providers supported.
 - Reduce manual JD selection by detecting the primary job-description region on LinkedIn, Indeed, and common ATS pages.
 
@@ -126,9 +125,9 @@ M5 exits when:
 
 M6 exits when:
 
-- A sample form question produces a draft answer.
-- User confirmation is required before filling the field.
-- No submit action is performed.
+- A sample form question is recognized and can match a confirmed local answer.
+- User confirmation is required before copying or saving an answer.
+- No field filling, selection, submission, AI call, or REST call is performed for ATS form answers.
 
 M7 exits when:
 

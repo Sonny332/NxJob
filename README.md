@@ -1,6 +1,6 @@
 # NxJob
 
-NxJob is a lightweight job-application copilot. It is designed to reduce repetitive work around job description capture, sponsorship analysis, resume tailoring, form-answer drafting, and application tracking.
+NxJob is a lightweight job-application copilot. It is designed to reduce repetitive work around job description capture, sponsorship analysis, resume tailoring, local form-question recognition, saved-answer reuse, and application tracking.
 
 ## Status
 
@@ -27,7 +27,7 @@ The MVP focuses on three browser actions plus a lightweight tracking loop:
 
 - Analyze Sponsorship
 - Tailor Resume
-- Fill Form Answer
+- Find Form Answers
 - Record Application / Outcome from the Side Panel
 
 NxJob does not automatically submit applications, bypass verification, bulk scrape job sites, or perform no-confirmation mass applying.
@@ -36,7 +36,7 @@ Tailor Resume uses a private Master Resume, a configured resume output folder, a
 
 ## Known MVP Limits
 
-- Fill Form Answer drafts and fills detected fields, but the user must review every answer and submit manually.
+- Find Form Answers detects supported form questions, matches saved local answers, and lets the user copy or save confirmed answers. It does not fill fields, choose options, submit forms, or send form content to AI in this milestone.
 - JD capture still works best when the user selects the job description text before capture.
 - Tailor Resume output is usable for MVP testing, but layout and model-specific quality can still improve.
 - Windows is the primary tested platform. Core business logic is kept platform-neutral for future macOS support.

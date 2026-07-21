@@ -12,8 +12,6 @@ import {
   createApplication,
   createOutcome,
   deleteAiProviderProfile,
-  draftFormAnswer,
-  draftFormAnswers,
   getDolIndexJob,
   getDolIndexStatus,
   getResumeArtifactUrl,
@@ -36,8 +34,6 @@ import {
   type DolIndexJob,
   type DolIndexStatus,
   type DolIndexStatusResponse,
-  type FormAnswerDraftResponse,
-  type FormAnswerDraftsResponse,
   type JobLeadRecord,
   type OutcomeSignalResponse,
   type OutcomeType,
@@ -47,14 +43,24 @@ import {
   type SponsorshipStatus
 } from "../../src/lib/api-client";
 import {
-  captureActiveFieldContext,
+  captureFormFieldAnswer,
   captureActiveTabContext,
-  fillFormFieldById,
-  fillActiveField,
   listOpenTabUrls,
   scanActiveTabFormFields,
   type PageContext
 } from "../../src/lib/page-capture";
+import {
+  clearSavedAnswers,
+  copyAnswerAndTouch,
+  deleteSavedAnswer,
+  findAnswerCandidates,
+  loadSavedAnswers,
+  saveConfirmedAnswer,
+  updateSavedAnswer,
+  type AnswerCandidate,
+  type SavedAnswer
+} from "../../src/lib/form-answer-library";
+import type { DetectedFormField } from "../../src/lib/form-context";
 import {
   createWorkspaceRecord,
   emptyWorkflow,
@@ -98,11 +104,6 @@ const OUTCOME_LABELS: Record<SidePanelOutcomeType, string> = {
 
 function isSensitiveField(field: { sensitiveKind?: string }): boolean {
   return Boolean(field.sensitiveKind?.trim());
-}
-
-function sensitiveFieldMessage(kind?: string): string {
-  const label = kind?.trim() || "sensitive";
-  return `NxJob will not draft or fill ${label} fields. Complete this field manually.`;
 }
 
 const APPLICATION_STATUS_BY_OUTCOME: Record<SidePanelOutcomeType, ApplicationRecord["status"]> = {
@@ -169,6 +170,15 @@ type PendingDuplicateCapture = {
   context: PageContext;
   capture: CaptureJobLeadResponse;
 };
+type FormAnswerMatchRow = {
+  field: DetectedFormField;
+  candidates: AnswerCandidate[];
+};
+type PendingAnswerSave = {
+  jobId: string;
+  field: DetectedFormField;
+  draftValue: string;
+};
 
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
@@ -192,6 +202,10 @@ export function App() {
   const [successReferenceCount, setSuccessReferenceCount] = useState<number | null>(null);
   const [dolIndexAction, setDolIndexAction] = useState<DolIndexAction>("idle");
   const [pendingDuplicateCapture, setPendingDuplicateCapture] = useState<PendingDuplicateCapture | null>(null);
+  const [formAnswerMatchesByJobId, setFormAnswerMatchesByJobId] = useState<Record<string, FormAnswerMatchRow[]>>({});
+  const [savedAnswers, setSavedAnswers] = useState<SavedAnswer[]>([]);
+  const [savedAnswerDrafts, setSavedAnswerDrafts] = useState<Record<string, string>>({});
+  const [pendingAnswerSave, setPendingAnswerSave] = useState<PendingAnswerSave | null>(null);
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -206,6 +220,7 @@ export function App() {
         void hydrateTrackingForJobs(state.jobs);
       }
     });
+    void refreshSavedAnswers();
     refreshServiceAndConfig();
 
     return () => {
@@ -255,6 +270,30 @@ export function App() {
       setServiceState("offline");
       setMessage(error instanceof Error ? error.message : "NxJob local service is offline.");
     }
+  }
+
+  async function refreshSavedAnswers() {
+    const records = await loadSavedAnswers();
+    setSavedAnswers(records);
+    setSavedAnswerDrafts(
+      records.reduce<Record<string, string>>((drafts, entry) => {
+        drafts[entry.id] = entry.answers.join("\n");
+        return drafts;
+      }, {})
+    );
+  }
+
+  async function refreshFormAnswerMatches(jobId: string, fields: DetectedFormField[]) {
+    const rows = await Promise.all(
+      fields.map(async (field) => ({
+        field,
+        candidates: await findAnswerCandidates(field)
+      }))
+    );
+    setFormAnswerMatchesByJobId((current) => ({
+      ...current,
+      [jobId]: rows
+    }));
   }
 
   async function buildDolIndexFromSettings() {
@@ -537,35 +576,16 @@ export function App() {
   async function runFormAnswer(job: JobWorkspaceRecord) {
     markWorkflow(job.id, "formAnswer", "running");
     try {
-      const formContext = await scanActiveTabFormFields();
-      const fields = formContext.fields.filter((field) => !isSensitiveField(field));
-      if (fields.length === 0) {
-        const fieldContext = await captureActiveFieldContext();
-        if (isSensitiveField(fieldContext)) {
-          const error = new Error(sensitiveFieldMessage(fieldContext.sensitiveKind));
-          setWorkflowError(job.id, "formAnswer", error);
-          setMessage(error.message);
-          return;
-        }
-        const result = await draftFormAnswer(job.jobLead, fieldContext);
-        setWorkflowResult(job.id, "formAnswer", result);
-        setMessage("Answer draft generated for the focused field. Review before filling.");
-        return;
-      }
-      const result = await draftFormAnswers(job.jobLead, fields);
-      setWorkflowResult(job.id, "formAnswer", result);
-      setMessage(`Generated ${result.drafts.length} form answer drafts. Review before filling.`);
+      const fields = await scanActiveTabFormFields();
+      await refreshFormAnswerMatches(job.id, fields);
+      finishWorkflowWithoutResult(job.id, "formAnswer");
+      setMessage(
+        fields.length > 0
+          ? `Found ${fields.length} form questions. Saved answers are matched locally.`
+          : "No supported form questions were detected on this page."
+      );
     } catch (error) {
       setWorkflowError(job.id, "formAnswer", error);
-    }
-  }
-
-  async function confirmFill(answer: string) {
-    try {
-      await fillActiveField(answer);
-      setMessage("Filled current field. Review the page before submitting.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to fill current field.");
     }
   }
 
@@ -611,15 +631,6 @@ export function App() {
     setApiBaseUrl(preset.baseUrl);
     setApiModel(preset.model);
     setApiDisplayName(preset.label);
-  }
-
-  async function confirmFillField(fieldId: string, answer: string) {
-    try {
-      await fillFormFieldById(fieldId, answer);
-      setMessage("Filled selected field. Review the page before submitting.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to fill selected field.");
-    }
   }
 
   async function clearApiKey() {
@@ -742,6 +753,84 @@ export function App() {
     }
   }
 
+  async function copySavedAnswer(jobId: string, answerId: string, value: string) {
+    try {
+      await copyAnswerAndTouch(answerId, value, writeFormAnswerToClipboard);
+      const fields = (formAnswerMatchesByJobId[jobId] ?? []).map((row) => row.field);
+      await refreshSavedAnswers();
+      await refreshFormAnswerMatches(jobId, fields);
+      setMessage("Answer copied.");
+    } catch (error) {
+      setMessage(error instanceof Error ? `Could not copy answer: ${error.message}` : "Could not copy answer.");
+    }
+  }
+
+  async function startSaveAnswer(jobId: string, field: DetectedFormField) {
+    try {
+      const captured = await captureFormFieldAnswer(field.fieldId);
+      const draftValue = captured.answers.join("\n").trim();
+      if (!draftValue) {
+        setMessage("This field is empty. Fill it on the page first, then save the answer.");
+        return;
+      }
+      setPendingAnswerSave({ jobId, field, draftValue });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to capture the current field answer.");
+    }
+  }
+
+  async function confirmSaveAnswer() {
+    if (!pendingAnswerSave) return;
+    const answers = pendingAnswerSave.draftValue
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (answers.length === 0) {
+      setMessage("Answer cannot be empty.");
+      return;
+    }
+
+    await saveConfirmedAnswer({
+      question: pendingAnswerSave.field.questionText,
+      fieldType: pendingAnswerSave.field.inputType,
+      answers,
+      sensitive: isSensitiveField(pendingAnswerSave.field)
+    });
+    const fields = (formAnswerMatchesByJobId[pendingAnswerSave.jobId] ?? []).map((row) => row.field);
+    setPendingAnswerSave(null);
+    await refreshSavedAnswers();
+    await refreshFormAnswerMatches(pendingAnswerSave.jobId, fields);
+    setMessage("Saved in this browser profile.");
+  }
+
+  async function saveEditedAnswer(answerId: string) {
+    const draft = savedAnswerDrafts[answerId] ?? "";
+    const answers = draft
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (answers.length === 0) {
+      setMessage("Answer cannot be empty.");
+      return;
+    }
+    await updateSavedAnswer(answerId, answers);
+    await refreshSavedAnswers();
+    setMessage("Saved answer updated.");
+  }
+
+  async function removeSavedAnswer(answerId: string) {
+    await deleteSavedAnswer(answerId);
+    await refreshSavedAnswers();
+    setMessage("Saved answer removed.");
+  }
+
+  async function clearAllSavedAnswers() {
+    if (!window.confirm("Clear all saved answers from this browser profile?")) return;
+    await clearSavedAnswers();
+    await refreshSavedAnswers();
+    setMessage("Saved answers cleared.");
+  }
+
   function hideJob(jobId: string) {
     updateWorkspaceState((current) => {
       const updated = updateWorkspaceJob(current, jobId, (job) => ({
@@ -806,6 +895,25 @@ export function App() {
     );
   }
 
+  function finishWorkflowWithoutResult(jobId: string, key: WorkflowKey) {
+    updateWorkspaceState((current) =>
+      updateWorkspaceJob(current, jobId, (job) => ({
+        ...job,
+        updatedAt: new Date().toISOString(),
+        workflows: {
+          ...job.workflows,
+          [key]: {
+            status: "completed",
+            updatedAt: new Date().toISOString(),
+            traceId: "",
+            result: null,
+            error: ""
+          }
+        }
+      }))
+    );
+  }
+
   function setWorkflowResult(
     jobId: string,
     key: "sponsorship",
@@ -814,13 +922,8 @@ export function App() {
   function setWorkflowResult(jobId: string, key: "resume", result: ResumeTailorResponse): ResumeTailorResponse;
   function setWorkflowResult(
     jobId: string,
-    key: "formAnswer",
-    result: FormAnswerDraftResponse | FormAnswerDraftsResponse
-  ): FormAnswerDraftResponse | FormAnswerDraftsResponse;
-  function setWorkflowResult(
-    jobId: string,
     key: WorkflowKey,
-    result: SponsorshipAnalyzeResponse | ResumeTailorResponse | FormAnswerDraftResponse | FormAnswerDraftsResponse
+    result: SponsorshipAnalyzeResponse | ResumeTailorResponse
   ) {
     const currentJob = workspaceRef.current.jobs.find((job) => job.id === jobId) ?? null;
     const resultToSave =
@@ -1015,6 +1118,39 @@ export function App() {
                 onCleanup={cleanupDolIndexFromSettings}
               />
             ) : null}
+            <div className="profile-list">
+              <div className="section-heading">
+                <strong>Saved Answers</strong>
+                <button type="button" className="text-button" onClick={clearAllSavedAnswers} disabled={savedAnswers.length === 0}>
+                  Clear All
+                </button>
+              </div>
+              {savedAnswers.length > 0 ? (
+                savedAnswers.map((answer) => (
+                  <div key={answer.id} className="profile-row saved-answer-row">
+                    <textarea
+                      value={savedAnswerDrafts[answer.id] ?? ""}
+                      onChange={(event) =>
+                        setSavedAnswerDrafts((current) => ({
+                          ...current,
+                          [answer.id]: event.target.value
+                        }))
+                      }
+                    />
+                    <div className="inline-actions">
+                      <button type="button" className="secondary-button" onClick={() => saveEditedAnswer(answer.id)}>
+                        Save
+                      </button>
+                      <button type="button" className="secondary-button" onClick={() => removeSavedAnswer(answer.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <small>No saved answers yet.</small>
+              )}
+            </div>
             <small>
               NxJob uses local private config first. Environment variables are only a development fallback. Keys and resume contents are not written to logs.
             </small>
@@ -1088,8 +1224,9 @@ export function App() {
               onTailor={() => runTailor(focusedJob)}
               onTailorRefresh={() => runTailor(focusedJob, true)}
               onDraftAnswer={() => runFormAnswer(focusedJob)}
-              onFillAnswer={confirmFill}
-              onFillField={confirmFillField}
+              formAnswerMatches={formAnswerMatchesByJobId[focusedJob.id] ?? []}
+              onCopyAnswer={(answerId, value) => copySavedAnswer(focusedJob.id, answerId, value)}
+              onSaveAnswer={(field) => startSaveAnswer(focusedJob.id, field)}
               onFeedback={(rating) => saveFeedback(focusedJob, rating)}
               onHide={() => hideJob(focusedJob.id)}
               onRestore={() => restoreJob(focusedJob.id)}
@@ -1105,6 +1242,39 @@ export function App() {
           )}
         </div>
       </section>
+
+      {pendingAnswerSave ? (
+        <section className="result-block" aria-label="Save answer confirmation">
+          <div className="result-heading">
+            <div>
+              <strong>Save This Answer</strong>
+              <span>{pendingAnswerSave.field.inputType}</span>
+            </div>
+          </div>
+          <div className="compact-list">
+            <span>Question</span>
+            <p>{pendingAnswerSave.field.questionText}</p>
+          </div>
+          <label>
+            <span>Answer</span>
+            <textarea
+              value={pendingAnswerSave.draftValue}
+              onChange={(event) =>
+                setPendingAnswerSave((current) => (current ? { ...current, draftValue: event.target.value } : current))
+              }
+            />
+          </label>
+          <small>Only saved in this browser profile.</small>
+          <div className="inline-actions">
+            <button type="button" onClick={confirmSaveAnswer}>
+              Confirm Save
+            </button>
+            <button type="button" className="secondary-button" onClick={() => setPendingAnswerSave(null)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <p className="message">{message}</p>
     </main>
@@ -1191,8 +1361,9 @@ function JobDetail(props: {
   onTailor: () => void;
   onTailorRefresh: () => void;
   onDraftAnswer: () => void;
-  onFillAnswer: (answer: string) => void;
-  onFillField: (fieldId: string, answer: string) => void;
+  formAnswerMatches: FormAnswerMatchRow[];
+  onCopyAnswer: (answerId: string, value: string) => void;
+  onSaveAnswer: (field: DetectedFormField) => void;
   onFeedback: (rating: ResumeFeedbackRating) => void;
   onHide: () => void;
   onRestore: () => void;
@@ -1206,7 +1377,6 @@ function JobDetail(props: {
   const { job } = props;
   const sponsorship = job.workflows.sponsorship.result;
   const resume = job.workflows.resume.result;
-  const formAnswer = job.workflows.formAnswer.result;
   const canRunAiSponsorship = canRunAiSponsorshipReview(sponsorship);
 
   return (
@@ -1281,12 +1451,17 @@ function JobDetail(props: {
 
       <div className="action-row">
         <button type="button" disabled={job.workflows.formAnswer.status === "running"} onClick={props.onDraftAnswer}>
-          {job.workflows.formAnswer.status === "running" ? "Drafting..." : "Fill Form Answer"}
+          {job.workflows.formAnswer.status === "running" ? "Scanning..." : "Find Form Answers"}
         </button>
       </div>
 
-      {formAnswer ? (
-        <FormAnswerResult result={formAnswer} onFillAnswer={props.onFillAnswer} onFillField={props.onFillField} />
+      {props.formAnswerMatches.length > 0 ? (
+        <FormAnswerResult rows={props.formAnswerMatches} onCopyAnswer={props.onCopyAnswer} onSaveAnswer={props.onSaveAnswer} />
+      ) : job.workflows.formAnswer.status === "completed" ? (
+        <section className="result-block">
+          <strong>Form Answers</strong>
+          <small>No supported form questions were detected.</small>
+        </section>
       ) : (
         <WorkflowMessage run={job.workflows.formAnswer} />
       )}
@@ -1355,60 +1530,45 @@ function CaptureResultCard(props: {
 }
 
 function FormAnswerResult(props: {
-  result: FormAnswerDraftResponse | FormAnswerDraftsResponse;
-  onFillAnswer: (answer: string) => void;
-  onFillField: (fieldId: string, answer: string) => void;
+  rows: FormAnswerMatchRow[];
+  onCopyAnswer: (answerId: string, value: string) => void;
+  onSaveAnswer: (field: DetectedFormField) => void;
 }) {
-  if ("drafts" in props.result) {
-    return (
-      <section className="result-block">
-        <strong>Answer Drafts</strong>
-        <small>{props.result.ai_used ? "AI + fixed profile drafts" : "Fixed profile drafts"} · Requires review</small>
-        {props.result.drafts.map((draft) => {
-          const fieldId = draft.field_id;
-          return (
-            <article key={draft.id} className="draft-card">
-              <span>{draft.question_text || draft.field_label || "Detected field"}</span>
-              <small>
-                {draft.intent || "custom"} · {draft.answer_type || "text"} · {Math.round((draft.confidence ?? 0) * 100)}%
-              </small>
-              <p>{draft.answer}</p>
-              {draft.selected_option ? <small>Selected option: {draft.selected_option}</small> : null}
-              {draft.evidence_summary.length > 0 ? <small>Evidence: {draft.evidence_summary.join(" ")}</small> : null}
-              {draft.risk_flags.length > 0 ? <small>{draft.risk_flags.join(" ")}</small> : null}
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={!fieldId}
-                onClick={() => props.onFillField(fieldId, draft.answer)}
-              >
-                Fill This Field
-              </button>
-            </article>
-          );
-        })}
-        {props.result.warnings.length > 0 ? <small>{props.result.warnings.join(" ")}</small> : null}
-      </section>
-    );
-  }
-
-  const singleResult = props.result as FormAnswerDraftResponse;
   return (
     <section className="result-block">
-      <strong>Answer Draft</strong>
-      <small>
-        {singleResult.draft.question_text || singleResult.draft.field_label || "Detected field"} ·{" "}
-        {singleResult.draft.intent || "custom"} · {Math.round((singleResult.draft.confidence ?? 0) * 100)}%
-      </small>
-      <p>{singleResult.draft.answer}</p>
-      {singleResult.draft.selected_option ? <small>Selected option: {singleResult.draft.selected_option}</small> : null}
-      {singleResult.draft.evidence_summary.length > 0 ? (
-        <small>Evidence: {singleResult.draft.evidence_summary.join(" ")}</small>
-      ) : null}
-      <small>{singleResult.ai_used ? "AI draft" : "Fixed profile answer"} · Requires review</small>
-      <button type="button" className="secondary-button" onClick={() => props.onFillAnswer(singleResult.draft.answer)}>
-        Fill Current Field
-      </button>
+      <strong>Form Answers</strong>
+      <small>Detected locally. Copy or save only.</small>
+      <div className="draft-list">
+        {props.rows.map((row) => (
+          <article key={row.field.fieldId} className="draft-card">
+            <span>{row.field.questionText || "Choose manually"}</span>
+            {row.candidates.length > 0 ? (
+              row.candidates.map((candidate) => (
+                <div key={candidate.answer.id} className="answer-row">
+                  <div>
+                    <p>{candidate.answer.answers.join(" / ")}</p>
+                    <small>{candidate.confidenceLabel}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => props.onCopyAnswer(candidate.answer.id, candidate.answer.answers.join("\n"))}
+                  >
+                    Copy
+                  </button>
+                </div>
+              ))
+            ) : (
+              <small>{row.field.inputType === "custom_select" && !row.field.questionText ? "Choose manually" : "No saved answer"}</small>
+            )}
+            {!(row.field.inputType === "custom_select" && !row.field.questionText) ? (
+              <button type="button" className="secondary-button" onClick={() => props.onSaveAnswer(row.field)}>
+                Save this answer
+              </button>
+            ) : null}
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1814,6 +1974,13 @@ async function copyText(value: string) {
   } catch {
     // The visible link/path remains available when clipboard permission is unavailable.
   }
+}
+
+async function writeFormAnswerToClipboard(value: string): Promise<void> {
+  if (!value.trim()) {
+    throw new Error("There is no answer to copy.");
+  }
+  await navigator.clipboard.writeText(value);
 }
 
 function isActiveDolJob(job: DolIndexJob): boolean {

@@ -9,7 +9,9 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -189,11 +191,23 @@ small,
 }
 
 input {
+  background: #ffffff;
   border: 1px solid #cccccc;
   border-radius: 4px;
   box-sizing: border-box;
   min-height: 34px;
   padding: 6px 8px;
+  width: 100%;
+}
+
+textarea {
+  background: #ffffff;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 6px 8px;
+  resize: vertical;
   width: 100%;
 }
 
@@ -203,10 +217,17 @@ input {
 
 .settings-actions,
 .action-row,
-.feedback-grid {
+.feedback-grid,
+.inline-actions,
+.answer-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.answer-row {
+  align-items: start;
+  justify-content: space-between;
 }
 
 .secondary-button {
@@ -330,6 +351,14 @@ select {
   grid-template-columns: 1fr auto auto;
 }
 
+.saved-answer-row {
+  grid-template-columns: 1fr;
+}
+
+.saved-answer-row textarea {
+  min-height: 64px;
+}
+
 .profile-row span,
 .draft-card span {
   font-size: 12px;
@@ -338,6 +367,11 @@ select {
 
 .draft-card p {
   font-size: 12px;
+}
+
+.draft-list {
+  display: grid;
+  gap: 8px;
 }
 
 .result-heading div {
