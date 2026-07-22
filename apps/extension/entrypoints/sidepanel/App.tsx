@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   activateAiProviderProfile,
@@ -1227,6 +1227,9 @@ export function App() {
               formAnswerMatches={formAnswerMatchesByJobId[focusedJob.id] ?? []}
               onCopyAnswer={(answerId, value) => copySavedAnswer(focusedJob.id, answerId, value)}
               onSaveAnswer={(field) => startSaveAnswer(focusedJob.id, field)}
+              pendingAnswerSave={pendingAnswerSave}
+              onPendingAnswerSaveChange={setPendingAnswerSave}
+              onConfirmSaveAnswer={confirmSaveAnswer}
               onFeedback={(rating) => saveFeedback(focusedJob, rating)}
               onHide={() => hideJob(focusedJob.id)}
               onRestore={() => restoreJob(focusedJob.id)}
@@ -1242,39 +1245,6 @@ export function App() {
           )}
         </div>
       </section>
-
-      {pendingAnswerSave ? (
-        <section className="result-block" aria-label="Save answer confirmation">
-          <div className="result-heading">
-            <div>
-              <strong>Save This Answer</strong>
-              <span>{pendingAnswerSave.field.inputType}</span>
-            </div>
-          </div>
-          <div className="compact-list">
-            <span>Question</span>
-            <p>{pendingAnswerSave.field.questionText}</p>
-          </div>
-          <label>
-            <span>Answer</span>
-            <textarea
-              value={pendingAnswerSave.draftValue}
-              onChange={(event) =>
-                setPendingAnswerSave((current) => (current ? { ...current, draftValue: event.target.value } : current))
-              }
-            />
-          </label>
-          <small>Only saved in this browser profile.</small>
-          <div className="inline-actions">
-            <button type="button" onClick={confirmSaveAnswer}>
-              Confirm Save
-            </button>
-            <button type="button" className="secondary-button" onClick={() => setPendingAnswerSave(null)}>
-              Cancel
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       <p className="message">{message}</p>
     </main>
@@ -1364,6 +1334,9 @@ function JobDetail(props: {
   formAnswerMatches: FormAnswerMatchRow[];
   onCopyAnswer: (answerId: string, value: string) => void;
   onSaveAnswer: (field: DetectedFormField) => void;
+  pendingAnswerSave: PendingAnswerSave | null;
+  onPendingAnswerSaveChange: Dispatch<SetStateAction<PendingAnswerSave | null>>;
+  onConfirmSaveAnswer: () => void;
   onFeedback: (rating: ResumeFeedbackRating) => void;
   onHide: () => void;
   onRestore: () => void;
@@ -1456,7 +1429,15 @@ function JobDetail(props: {
       </div>
 
       {props.formAnswerMatches.length > 0 ? (
-        <FormAnswerResult rows={props.formAnswerMatches} onCopyAnswer={props.onCopyAnswer} onSaveAnswer={props.onSaveAnswer} />
+        <FormAnswerResult
+          jobId={job.id}
+          rows={props.formAnswerMatches}
+          onCopyAnswer={props.onCopyAnswer}
+          onSaveAnswer={props.onSaveAnswer}
+          pendingAnswerSave={props.pendingAnswerSave}
+          onPendingAnswerSaveChange={props.onPendingAnswerSaveChange}
+          onConfirmSaveAnswer={props.onConfirmSaveAnswer}
+        />
       ) : job.workflows.formAnswer.status === "completed" ? (
         <section className="result-block">
           <strong>Form Answers</strong>
@@ -1530,9 +1511,13 @@ function CaptureResultCard(props: {
 }
 
 function FormAnswerResult(props: {
+  jobId: string;
   rows: FormAnswerMatchRow[];
   onCopyAnswer: (answerId: string, value: string) => void;
   onSaveAnswer: (field: DetectedFormField) => void;
+  pendingAnswerSave: PendingAnswerSave | null;
+  onPendingAnswerSaveChange: Dispatch<SetStateAction<PendingAnswerSave | null>>;
+  onConfirmSaveAnswer: () => void;
 }) {
   return (
     <section className="result-block">
@@ -1565,6 +1550,40 @@ function FormAnswerResult(props: {
               <button type="button" className="secondary-button" onClick={() => props.onSaveAnswer(row.field)}>
                 Save this answer
               </button>
+            ) : null}
+            {props.pendingAnswerSave?.jobId === props.jobId && props.pendingAnswerSave.field.fieldId === row.field.fieldId ? (
+              <div className="answer-save-confirmation" aria-label="Save answer confirmation">
+                <div className="result-heading">
+                  <div>
+                    <strong>Save This Answer</strong>
+                    <span>{props.pendingAnswerSave.field.inputType}</span>
+                  </div>
+                </div>
+                <div className="compact-list">
+                  <span>Question</span>
+                  <p>{props.pendingAnswerSave.field.questionText}</p>
+                </div>
+                <label>
+                  <span>Answer</span>
+                  <textarea
+                    value={props.pendingAnswerSave.draftValue}
+                    onChange={(event) =>
+                      props.onPendingAnswerSaveChange((current) =>
+                        current ? { ...current, draftValue: event.target.value } : current
+                      )
+                    }
+                  />
+                </label>
+                <small>Only saved in this browser profile.</small>
+                <div className="inline-actions">
+                  <button type="button" onClick={props.onConfirmSaveAnswer}>
+                    Confirm Save
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => props.onPendingAnswerSaveChange(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : null}
           </article>
         ))}
