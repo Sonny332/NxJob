@@ -8,6 +8,9 @@
 - AI workflows store `PromptLog`.
 - User confirmation stays in the extension UI. APIs may draft, analyze, or record, but must not submit applications.
 - Error responses use one common shape.
+- The Local Service owns the only active saved-answer library at `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`.
+- Browser storage migration is limited to one import from the legacy `nxjob.form-answer-library.v1` key. Workspace state, AI drafts, and any `nxjob.workspace.v1` data must never be migrated into the service answer library.
+- Saved answers do not use AI, cloud sync, or a browser-offline fallback copy. When the Local Service is unavailable, the extension may still scan the page locally, but answer-library reads, writes, copy, and save actions must stay unavailable.
 
 ## Common Types
 
@@ -751,4 +754,53 @@ Response:
 - Sponsorship AI inference must include `is_legal_conclusion: false`.
 - `draft-answer` must return `requires_user_review: true`.
 - `tailor-resume` MVP only returns `format: docx`.
+
+## Service-Backed Answer Library
+
+### GET /api/v1/form-answer-library
+
+Purpose: read the saved-answer library from the Local Service private JSON file.
+
+Rules:
+
+- The backing file path is fixed at `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`.
+- The Local Service is the only owner of this file. The extension must read and mutate it only through loopback REST.
+- If the file does not exist, the service returns an empty `answers` list.
+- If the file is unreadable or invalid, the service returns a server error without answer content.
+
+### POST /api/v1/form-answer-library/import
+
+Purpose: perform the one-time browser-to-service migration for confirmed answers.
+
+Rules:
+
+- Import accepts only the legacy extension key payload shape from `nxjob.form-answer-library.v1`.
+- Import must not read or transform workspace state, AI drafts, or any `nxjob.workspace.v1` data.
+- Import is additive and deduplicates by normalized question, field type, and answer array.
+- The extension writes its migration marker only after a successful import into the Local Service.
+
+### POST /api/v1/form-answer-library
+### POST /api/v1/form-answer-library/{answer_id}/touch
+### PUT /api/v1/form-answer-library/{answer_id}
+### DELETE /api/v1/form-answer-library/{answer_id}
+### DELETE /api/v1/form-answer-library
+
+Purpose: create, touch, update, delete, or clear saved answers inside the service-owned library.
+
+Rules:
+
+- The service normalizes question text and answers before persistence.
+- `PUT /api/v1/form-answer-library/{answer_id}` accepts the `SavedAnswerUpdate` body:
+
+```json
+{
+  "answers": ["string"],
+  "sensitive": true
+}
+```
+
+- In `SavedAnswerUpdate`, `answers` is required and `sensitive` is optional.
+- Mutations must not log answer content or expose answer content in error details.
+- The extension may run a non-mutating service preflight before copy. Clipboard write happens only after preflight succeeds, and `touch` happens only after clipboard success.
+- If the Local Service becomes unavailable, the extension must clear answer candidates, disable answer-library actions, and show the scan-only recovery message `Start Local Service to use saved answers.`
 

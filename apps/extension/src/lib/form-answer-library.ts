@@ -1,10 +1,22 @@
 import { browser } from "wxt/browser";
 
+import type { SavedAnswerRecord as ServiceSavedAnswer } from "./api-client";
+import {
+  clearFormAnswerLibrary,
+  createFormAnswerLibraryAnswer,
+  deleteFormAnswerLibraryAnswer,
+  getFormAnswerLibrary,
+  importFormAnswerLibrary,
+  touchFormAnswerLibraryAnswer,
+  updateFormAnswerLibraryAnswer
+} from "./api-client";
 import type { DetectedFormField } from "./form-context";
 
 const STORAGE_KEY = "nxjob.form-answer-library.v1";
+const MIGRATION_MARKER_KEY = "nxjob.form-answer-library.service-imported.v1";
 const STORAGE_VERSION = 1;
 const MAX_MATCHES = 3;
+const SERVICE_UNAVAILABLE_MESSAGE = "Local Service is unavailable. Start it to use saved answers.";
 
 type StoragePayload = {
   version: number;
@@ -64,9 +76,26 @@ type StorageAreaLike = {
   remove(key: string): Promise<void>;
 };
 
-const memoryStorage = new Map<string, unknown>();
+type FormAnswerServiceClient = {
+  load(): Promise<SavedAnswer[]>;
+  importAnswers(payload: { version: 1; answers: SavedAnswer[] }): Promise<void>;
+  create(input: SaveConfirmedAnswerInput): Promise<SavedAnswer>;
+  update(id: string, answers: string[]): Promise<void>;
+  touch(id: string): Promise<void>;
+  delete(id: string): Promise<void>;
+  clear(): Promise<void>;
+};
 
-function storageArea(): StorageAreaLike {
+type TestHooks = {
+  storageArea?: StorageAreaLike;
+  serviceClient?: FormAnswerServiceClient;
+};
+
+const memoryStorage = new Map<string, unknown>();
+let testHooks: TestHooks = {};
+let migrationPromise: Promise<void> | null = null;
+
+function defaultStorageArea(): StorageAreaLike {
   if (browser?.storage?.local) {
     return browser.storage.local as StorageAreaLike;
   }
@@ -85,101 +114,80 @@ function storageArea(): StorageAreaLike {
   };
 }
 
+function storageArea(): StorageAreaLike {
+  return testHooks.storageArea ?? defaultStorageArea();
+}
+
+function defaultServiceClient(): FormAnswerServiceClient {
+  return {
+    async load() {
+      const response = await getFormAnswerLibrary();
+      return response.answers.map(normalizeSavedAnswer).filter(Boolean) as SavedAnswer[];
+    },
+    async importAnswers(payload) {
+      await importFormAnswerLibrary({ version: 1, answers: payload.answers });
+    },
+    async create(input) {
+      const response = await createFormAnswerLibraryAnswer(input);
+      const normalized = normalizeSavedAnswer(response.answer);
+      if (!normalized) throw new Error("Local Service returned an invalid saved answer.");
+      return normalized;
+    },
+    async update(id, answers) {
+      await updateFormAnswerLibraryAnswer(id, { answers });
+    },
+    async touch(id) {
+      await touchFormAnswerLibraryAnswer(id);
+    },
+    async delete(id) {
+      await deleteFormAnswerLibraryAnswer(id);
+    },
+    async clear() {
+      await clearFormAnswerLibrary();
+    }
+  };
+}
+
+function serviceClient(): FormAnswerServiceClient {
+  return testHooks.serviceClient ?? defaultServiceClient();
+}
+
 export async function loadSavedAnswers(): Promise<SavedAnswer[]> {
-  const payload = await loadPayload();
-  return payload.answers;
+  await ensureServiceImport();
+  return fetchSavedAnswersFromService();
 }
 
 export async function saveConfirmedAnswer(input: SaveConfirmedAnswerInput): Promise<SavedAnswer> {
-  const payload = await loadPayload();
-  const now = new Date().toISOString();
-  const answers = normalizeAnswers(input.answers);
-  const normalizedQuestion = normalizeQuestion(input.question);
-  const existing = payload.answers.find(
-    (entry) =>
-      entry.normalizedQuestion === normalizedQuestion &&
-      entry.fieldType === input.fieldType &&
-      sameAnswers(entry.answers, answers)
-  );
-
-  if (existing) {
-    const updated: SavedAnswer = {
-      ...existing,
-      question: input.question.trim() || existing.question,
-      sensitive: input.sensitive,
-      updatedAt: now,
-      lastUsedAt: now
-    };
-    await savePayload({
-      version: STORAGE_VERSION,
-      answers: payload.answers.map((entry) => (entry.id === existing.id ? updated : entry))
-    });
-    return updated;
-  }
-
-  const saved: SavedAnswer = {
-    id: `answer-${Math.random().toString(36).slice(2, 10)}`,
-    question: input.question.trim(),
-    normalizedQuestion,
-    fieldType: input.fieldType,
-    answers,
-    sensitive: input.sensitive,
-    createdAt: now,
-    updatedAt: now,
-    lastUsedAt: now
-  };
-  await savePayload({
-    version: STORAGE_VERSION,
-    answers: [saved, ...payload.answers]
-  });
-  return saved;
+  await ensureServiceImport();
+  return withServiceUnavailableMessage(() => serviceClient().create(input));
 }
 
 export async function updateSavedAnswer(id: string, answers: string[]): Promise<void> {
-  const payload = await loadPayload();
-  const nextAnswers = normalizeAnswers(answers);
-  const now = new Date().toISOString();
-  await savePayload({
-    version: STORAGE_VERSION,
-    answers: payload.answers.map((entry) =>
-      entry.id === id
-        ? {
-            ...entry,
-            answers: nextAnswers,
-            updatedAt: now,
-            lastUsedAt: now
-          }
-        : entry
-    )
-  });
+  await ensureServiceImport();
+  const normalized = normalizeAnswers(answers);
+  await withServiceUnavailableMessage(() => serviceClient().update(id, normalized));
 }
 
 export async function deleteSavedAnswer(id: string): Promise<void> {
-  const payload = await loadPayload();
-  await savePayload({
-    version: STORAGE_VERSION,
-    answers: payload.answers.filter((entry) => entry.id !== id)
-  });
+  await ensureServiceImport();
+  await withServiceUnavailableMessage(() => serviceClient().delete(id));
 }
 
 export async function clearSavedAnswers(): Promise<void> {
-  await storageArea().remove(STORAGE_KEY);
+  await ensureServiceImport();
+  await withServiceUnavailableMessage(() => serviceClient().clear());
+}
+
+export async function preflightSavedAnswersService(): Promise<void> {
+  await ensureServiceImport();
+  await withServiceUnavailableMessage(async () => {
+    await serviceClient().load();
+  });
 }
 
 export async function touchSavedAnswer(id: string): Promise<void> {
-  const payload = await loadPayload();
-  const now = new Date().toISOString();
-  await savePayload({
-    version: STORAGE_VERSION,
-    answers: payload.answers.map((entry) =>
-      entry.id === id
-        ? {
-            ...entry,
-            lastUsedAt: now
-          }
-        : entry
-    )
-  });
+  await ensureServiceImport();
+  await withServiceUnavailableMessage(() => serviceClient().touch(id));
 }
 
 export async function copyAnswerAndTouch(
@@ -187,25 +195,26 @@ export async function copyAnswerAndTouch(
   value: string,
   writeToClipboard: (value: string) => Promise<void>
 ): Promise<void> {
+  await preflightSavedAnswersService();
   await writeToClipboard(value);
   await touchSavedAnswer(id);
 }
 
-export async function findAnswerCandidates(field: DetectedFormField): Promise<AnswerCandidate[]> {
+export function isSavedAnswersUnavailableError(error: unknown): boolean {
+  return error instanceof Error && error.message === SERVICE_UNAVAILABLE_MESSAGE;
+}
+
+export function findAnswerCandidates(field: DetectedFormField, answers: SavedAnswer[]): AnswerCandidate[] {
   if (!field.questionText.trim()) return [];
 
   const profile = buildQuestionProfile(field.questionText);
-  const answers = await loadSavedAnswers();
-
   const matches = answers
     .filter((entry) => entry.fieldType === field.inputType)
     .map((entry) => ({ entry, profile: buildQuestionProfile(entry.question) }))
     .filter(({ profile: candidateProfile }) => areProfilesCompatible(profile, candidateProfile))
     .map(({ entry, profile: candidateProfile }) => {
       const score =
-        entry.normalizedQuestion === profile.normalized
-          ? 1
-          : lexicalScore(profile.tokens, candidateProfile.tokens);
+        entry.normalizedQuestion === profile.normalized ? 1 : lexicalScore(profile.tokens, candidateProfile.tokens);
       return { answer: entry, score };
     })
     .filter((item) => item.score >= 0.6)
@@ -224,10 +233,56 @@ export async function findAnswerCandidates(field: DetectedFormField): Promise<An
 
 export async function __resetFormAnswerLibraryForTest(): Promise<void> {
   memoryStorage.clear();
-  await clearSavedAnswers();
+  testHooks = {};
+  migrationPromise = null;
 }
 
-async function loadPayload(): Promise<StoragePayload> {
+export function __setFormAnswerLibraryTestHooks(hooks: TestHooks): void {
+  testHooks = hooks;
+  migrationPromise = null;
+}
+
+async function ensureServiceImport(): Promise<void> {
+  if (migrationPromise) {
+    return migrationPromise;
+  }
+
+  migrationPromise = (async () => {
+    const marker = await readMigrationMarker();
+    if (marker) return;
+
+    const payload = await loadLegacyPayload();
+    await withServiceUnavailableMessage(() =>
+      serviceClient().importAnswers({
+        version: 1,
+        answers: payload.answers
+      })
+    );
+    await writeMigrationMarker();
+  })();
+
+  try {
+    await migrationPromise;
+  } catch (error) {
+    migrationPromise = null;
+    throw error;
+  }
+}
+
+async function fetchSavedAnswersFromService(): Promise<SavedAnswer[]> {
+  return withServiceUnavailableMessage(() => serviceClient().load());
+}
+
+async function readMigrationMarker(): Promise<boolean> {
+  const stored = await storageArea().get(MIGRATION_MARKER_KEY);
+  return stored[MIGRATION_MARKER_KEY] === true;
+}
+
+async function writeMigrationMarker(): Promise<void> {
+  await storageArea().set({ [MIGRATION_MARKER_KEY]: true });
+}
+
+async function loadLegacyPayload(): Promise<StoragePayload> {
   const stored = await storageArea().get(STORAGE_KEY);
   const raw = stored[STORAGE_KEY];
   if (!raw || typeof raw !== "object") {
@@ -245,19 +300,13 @@ async function loadPayload(): Promise<StoragePayload> {
   };
 }
 
-async function savePayload(payload: StoragePayload): Promise<void> {
-  await storageArea().set({
-    [STORAGE_KEY]: payload
-  });
-}
-
 function normalizeSavedAnswer(value: unknown): SavedAnswer | null {
   if (!value || typeof value !== "object") return null;
-  const entry = value as Partial<SavedAnswer>;
+  const entry = value as Partial<SavedAnswer> | Partial<ServiceSavedAnswer>;
   if (typeof entry.id !== "string" || typeof entry.question !== "string" || typeof entry.normalizedQuestion !== "string") {
     return null;
   }
-  const answers = Array.isArray(entry.answers) ? normalizeAnswers(entry.answers) : [];
+  const answers = Array.isArray(entry.answers) ? normalizeAnswers(entry.answers as string[]) : [];
   if (answers.length === 0) return null;
   return {
     id: entry.id,
@@ -290,17 +339,20 @@ function normalizeAnswers(values: string[]): string[] {
   return values.map((value) => value.trim()).filter(Boolean);
 }
 
-function sameAnswers(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
 export function normalizeQuestion(question: string): string {
   return question
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function withServiceUnavailableMessage<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch {
+    throw new Error(SERVICE_UNAVAILABLE_MESSAGE);
+  }
 }
 
 function buildQuestionProfile(question: string): QuestionProfile {

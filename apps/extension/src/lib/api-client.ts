@@ -345,6 +345,29 @@ export type FormAnswerDraftsResponse = {
   warnings: string[];
 };
 
+export type SavedAnswerRecord = {
+  id: string;
+  question: string;
+  normalizedQuestion: string;
+  fieldType: FieldContext["inputType"];
+  answers: string[];
+  sensitive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string;
+};
+
+export type SavedAnswersResponse = {
+  trace_id: string;
+  version: 1;
+  answers: SavedAnswerRecord[];
+};
+
+export type SavedAnswerResponse = {
+  trace_id: string;
+  answer: SavedAnswerRecord;
+};
+
 export async function checkHealth(): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE_URL}/health`);
 
@@ -893,6 +916,117 @@ export async function draftFormAnswers(
   }
 
   return response.json() as Promise<FormAnswerDraftsResponse>;
+}
+
+export async function getFormAnswerLibrary(): Promise<SavedAnswersResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library`);
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SavedAnswersResponse>;
+}
+
+export async function importFormAnswerLibrary(payload: {
+  version: 1;
+  answers: SavedAnswerRecord[];
+}): Promise<SavedAnswersResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SavedAnswersResponse>;
+}
+
+export async function createFormAnswerLibraryAnswer(payload: {
+  question: string;
+  fieldType: FieldContext["inputType"];
+  answers: string[];
+  sensitive: boolean;
+}): Promise<SavedAnswerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SavedAnswerResponse>;
+}
+
+export async function updateFormAnswerLibraryAnswer(
+  id: string,
+  payload: {
+    answers: string[];
+    sensitive?: boolean;
+  }
+): Promise<SavedAnswerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SavedAnswerResponse>;
+}
+
+export async function touchFormAnswerLibraryAnswer(id: string): Promise<SavedAnswerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library/${encodeURIComponent(id)}/touch`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<SavedAnswerResponse>;
+}
+
+export async function deleteFormAnswerLibraryAnswer(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
+}
+
+export async function clearFormAnswerLibrary(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/form-answer-library`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message);
+  }
 }
 
 function inferSourceSite(url: string): SourceSite {

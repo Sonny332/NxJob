@@ -4,12 +4,15 @@ import uvicorn
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from nxjob import __version__
 from nxjob.api.applications import router as applications_router
 from nxjob.api.config import router as config_router
 from nxjob.api.dol_index import router as dol_index_router
+from nxjob.api.form_answer_library import router as form_answer_library_router
 from nxjob.api.forms import router as forms_router
 from nxjob.api.health import router as health_router
 from nxjob.api.job_leads import router as job_leads_router
@@ -26,6 +29,19 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _sanitize_validation_detail(exc: RequestValidationError) -> list[dict[str, object]]:
+    sanitized: list[dict[str, object]] = []
+    for error in exc.errors():
+        sanitized.append(
+            {
+                "type": error.get("type", "value_error"),
+                "loc": list(error.get("loc", ())),
+                "msg": error.get("msg", "Invalid request."),
+            }
+        )
+    return sanitized
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="NxJob Local Service",
@@ -33,6 +49,10 @@ def create_app() -> FastAPI:
         description="Local runtime service for NxJob browser extension workflows.",
         lifespan=lifespan,
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_request_validation_error(_request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": _sanitize_validation_detail(exc)})
 
     app.add_middleware(
         CORSMiddleware,
@@ -44,6 +64,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(config_router)
+    app.include_router(form_answer_library_router)
     app.include_router(dol_index_router)
     app.include_router(job_leads_router)
     app.include_router(resume_versions_router)

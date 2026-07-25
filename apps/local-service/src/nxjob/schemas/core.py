@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
 ApplicationStatus = Literal[
     "captured",
@@ -495,6 +496,139 @@ class ResumeOutputDirectoryUpdate(BaseModel):
 class DolCacheDirectoryUpdate(BaseModel):
     path: str
     max_cache_bytes: int | None = Field(default=None, gt=0)
+
+
+SavedAnswerFieldType = Literal["text", "textarea", "radio", "checkbox", "select", "custom_select", "email", "tel", "url", "number", "date"]
+
+
+def _validate_non_blank_string(value: str, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value
+
+
+def _validate_answer_values(value: list[str]) -> list[str]:
+    if not isinstance(value, list) or len(value) == 0:
+        raise ValueError("answers must include at least one non-empty value")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ValueError("answers must not include blank values")
+    return value
+
+
+def _validate_timestamp_string(value: str, field_name: str) -> str:
+    text = _validate_non_blank_string(value, field_name)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO 8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field_name} must be an ISO 8601 timestamp")
+    return text
+
+
+class SavedAnswerRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    question: str
+    normalizedQuestion: str
+    fieldType: SavedAnswerFieldType
+    answers: list[str]
+    sensitive: bool = False
+    createdAt: str
+    updatedAt: str
+    lastUsedAt: str
+
+    @field_validator("id", "question", "normalizedQuestion")
+    @classmethod
+    def validate_non_blank_fields(cls, value: str, info) -> str:
+        return _validate_non_blank_string(value, info.field_name)
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: list[str]) -> list[str]:
+        return _validate_answer_values(value)
+
+    @field_validator("createdAt", "updatedAt", "lastUsedAt")
+    @classmethod
+    def validate_timestamps(cls, value: str, info) -> str:
+        return _validate_timestamp_string(value, info.field_name)
+
+
+class SavedAnswersResponse(TraceResponse):
+    version: int
+    answers: list[SavedAnswerRecord] = Field(default_factory=list)
+
+
+class SavedAnswerCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    fieldType: SavedAnswerFieldType
+    answers: list[str]
+    sensitive: bool = False
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str) -> str:
+        return _validate_non_blank_string(value, "question")
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: list[str]) -> list[str]:
+        return _validate_answer_values(value)
+
+
+class SavedAnswerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answers: list[str]
+    sensitive: bool | None = None
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: list[str]) -> list[str]:
+        return _validate_answer_values(value)
+
+
+class SavedAnswerResponse(TraceResponse):
+    answer: SavedAnswerRecord
+
+
+class SavedAnswersImportEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = ""
+    question: str
+    normalizedQuestion: str = ""
+    fieldType: SavedAnswerFieldType
+    answers: list[str]
+    sensitive: bool = False
+    createdAt: str = ""
+    updatedAt: str = ""
+    lastUsedAt: str = ""
+
+    @field_validator("id", "question", "normalizedQuestion")
+    @classmethod
+    def validate_non_blank_fields(cls, value: str, info) -> str:
+        return _validate_non_blank_string(value, info.field_name)
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: list[str]) -> list[str]:
+        return _validate_answer_values(value)
+
+    @field_validator("createdAt", "updatedAt", "lastUsedAt")
+    @classmethod
+    def validate_timestamps(cls, value: str, info) -> str:
+        return _validate_timestamp_string(value, info.field_name)
+
+
+class SavedAnswersImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1]
+    answers: list[SavedAnswersImportEntry] = Field(default_factory=list)
 
 
 class FieldContext(BaseModel):

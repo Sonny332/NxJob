@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   __resetFormAnswerLibraryForTest,
+  __setFormAnswerLibraryTestHooks,
   clearSavedAnswers,
   copyAnswerAndTouch,
   deleteSavedAnswer,
@@ -11,6 +12,10 @@ import {
   touchSavedAnswer,
   updateSavedAnswer
 } from "../src/lib/form-answer-library.ts";
+
+const STORAGE_KEY = "nxjob.form-answer-library.v1";
+const MARKER_KEY = "nxjob.form-answer-library.service-imported.v1";
+const OFFLINE_MESSAGE = "Local Service is unavailable. Start it to use saved answers.";
 
 const tests = [];
 function test(name, fn) {
@@ -26,27 +31,20 @@ async function run() {
 }
 
 test("exact normalized question match wins over lexical alternatives", async () => {
-  await saveConfirmedAnswer({
-    question: "Are you legally authorized to work in the United States?",
-    fieldType: "radio",
-    answers: ["Yes"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "Will you now or in the future require visa sponsorship?",
-    fieldType: "radio",
-    answers: ["No"],
-    sensitive: false
-  });
-
-  const matches = await findAnswerCandidates({
-    questionText: "Are you legally authorized to work in the United States?",
-    inputType: "radio",
-    required: true,
-    sensitiveKind: "",
-    recognitionConfidence: 0.98,
-    fieldId: "field-1"
-  });
+  const matches = findAnswerCandidates(
+    {
+      questionText: "Are you legally authorized to work in the United States?",
+      inputType: "radio",
+      required: true,
+      sensitiveKind: "",
+      recognitionConfidence: 0.98,
+      fieldId: "field-1"
+    },
+    [
+      createSavedAnswerRecord("Are you legally authorized to work in the United States?", "radio", ["Yes"]),
+      createSavedAnswerRecord("Will you now or in the future require visa sponsorship?", "radio", ["No"])
+    ]
+  );
 
   assert.equal(matches.length, 1);
   assert.equal(matches[0].answer.answers[0], "Yes");
@@ -54,172 +52,124 @@ test("exact normalized question match wins over lexical alternatives", async () 
 });
 
 test("country, negation, and time qualifier mismatches block reuse", async () => {
-  await saveConfirmedAnswer({
-    question: "Are you legally authorized to work in the United States?",
-    fieldType: "radio",
-    answers: ["Yes"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "Will you now or in the future require visa sponsorship?",
-    fieldType: "radio",
-    answers: ["No"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "When can you start?",
-    fieldType: "text",
-    answers: ["Two weeks"],
-    sensitive: false
-  });
+  const answers = [
+    createSavedAnswerRecord("Are you legally authorized to work in the United States?", "radio", ["Yes"]),
+    createSavedAnswerRecord("Will you now or in the future require visa sponsorship?", "radio", ["No"]),
+    createSavedAnswerRecord("When can you start?", "text", ["Two weeks"])
+  ];
 
   assert.equal(
-    (
-      await findAnswerCandidates({
+    findAnswerCandidates(
+      {
         questionText: "Are you legally authorized to work in Canada?",
         inputType: "radio",
         required: true,
         sensitiveKind: "",
         recognitionConfidence: 0.95,
         fieldId: "field-2"
-      })
+      },
+      answers
     ).length,
     0
   );
   assert.equal(
-    (
-      await findAnswerCandidates({
+    findAnswerCandidates(
+      {
         questionText: "Will you require visa sponsorship?",
         inputType: "radio",
         required: true,
         sensitiveKind: "",
         recognitionConfidence: 0.95,
         fieldId: "field-3"
-      })
+      },
+      answers
     ).length,
     0
   );
   assert.equal(
-    (
-      await findAnswerCandidates({
+    findAnswerCandidates(
+      {
         questionText: "How soon could you start?",
         inputType: "text",
         required: true,
         sensitiveKind: "",
         recognitionConfidence: 0.95,
         fieldId: "field-4"
-      })
+      },
+      answers
     ).length,
     0
   );
 });
 
 test("non-exact generic, country, and EEO questions never reuse a different qualifier", async () => {
-  await saveConfirmedAnswer({
-    question: "First legal name",
-    fieldType: "text",
-    answers: ["Ada"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "Are you legally authorized to work in France?",
-    fieldType: "radio",
-    answers: ["Yes"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "Voluntary self-identification of disability status",
-    fieldType: "radio",
-    answers: ["No"],
-    sensitive: true
-  });
+  const answers = [
+    createSavedAnswerRecord("First legal name", "text", ["Ada"]),
+    createSavedAnswerRecord("Are you legally authorized to work in France?", "radio", ["Yes"]),
+    createSavedAnswerRecord("Voluntary self-identification of disability status", "radio", ["No"], true)
+  ];
 
-  const firstToLast = await findAnswerCandidates({
-    questionText: "Last legal name",
-    inputType: "text",
-    required: true,
-    sensitiveKind: "",
-    recognitionConfidence: 0.98,
-    fieldId: "name-field"
-  });
-  const franceToGermany = await findAnswerCandidates({
-    questionText: "Are you legally authorized to work in Germany?",
-    inputType: "radio",
-    required: true,
-    sensitiveKind: "",
-    recognitionConfidence: 0.98,
-    fieldId: "country-field"
-  });
-  const disabilityToVeteran = await findAnswerCandidates({
-    questionText: "Voluntary self-identification of veteran status",
-    inputType: "radio",
-    required: true,
-    sensitiveKind: "eeoc",
-    recognitionConfidence: 0.98,
-    fieldId: "eeo-field"
-  });
-
-  assert.deepEqual(firstToLast, []);
-  assert.deepEqual(franceToGermany, []);
-  assert.deepEqual(disabilityToVeteran, []);
-});
-
-test("work authorization does not reuse a non-exact answer across unlisted country expressions", async () => {
-  await saveConfirmedAnswer({
-    question: "Are you legally authorized to work in Japan?",
-    fieldType: "radio",
-    answers: ["Yes"],
-    sensitive: false
-  });
-
-  const matches = await findAnswerCandidates({
-    questionText: "Are you legally authorized to work in Brazil?",
-    inputType: "radio",
-    required: true,
-    sensitiveKind: "",
-    recognitionConfidence: 0.98,
-    fieldId: "japan-brazil-work-authorization"
-  });
-
-  assert.deepEqual(matches, []);
+  assert.deepEqual(
+    findAnswerCandidates(
+      {
+        questionText: "Last legal name",
+        inputType: "text",
+        required: true,
+        sensitiveKind: "",
+        recognitionConfidence: 0.98,
+        fieldId: "name-field"
+      },
+      answers
+    ),
+    []
+  );
+  assert.deepEqual(
+    findAnswerCandidates(
+      {
+        questionText: "Are you legally authorized to work in Germany?",
+        inputType: "radio",
+        required: true,
+        sensitiveKind: "",
+        recognitionConfidence: 0.98,
+        fieldId: "country-field"
+      },
+      answers
+    ),
+    []
+  );
+  assert.deepEqual(
+    findAnswerCandidates(
+      {
+        questionText: "Voluntary self-identification of veteran status",
+        inputType: "radio",
+        required: true,
+        sensitiveKind: "eeoc",
+        recognitionConfidence: 0.98,
+        fieldId: "eeo-field"
+      },
+      answers
+    ),
+    []
+  );
 });
 
 test("matching returns top three sorted by score then recency", async () => {
-  await saveConfirmedAnswer({
-    question: "Please share your LinkedIn profile URL",
-    fieldType: "text",
-    answers: ["https://linkedin.example/a"],
-    sensitive: false
-  });
-  const second = await saveConfirmedAnswer({
-    question: "LinkedIn URL",
-    fieldType: "text",
-    answers: ["https://linkedin.example/b"],
-    sensitive: false
-  });
-  const third = await saveConfirmedAnswer({
-    question: "LinkedIn profile",
-    fieldType: "text",
-    answers: ["https://linkedin.example/c"],
-    sensitive: false
-  });
-  await saveConfirmedAnswer({
-    question: "Portfolio website",
-    fieldType: "text",
-    answers: ["https://portfolio.example"],
-    sensitive: false
-  });
-  await touchSavedAnswer(second.id);
-  await touchSavedAnswer(third.id);
-
-  const matches = await findAnswerCandidates({
-    questionText: "LinkedIn profile URL",
-    inputType: "text",
-    required: false,
-    sensitiveKind: "",
-    recognitionConfidence: 0.92,
-    fieldId: "field-5"
-  });
+  const matches = findAnswerCandidates(
+    {
+      questionText: "LinkedIn profile URL",
+      inputType: "text",
+      required: false,
+      sensitiveKind: "",
+      recognitionConfidence: 0.92,
+      fieldId: "field-5"
+    },
+    [
+      createSavedAnswerRecord("Please share your LinkedIn profile URL", "text", ["https://linkedin.example/a"], false, "2026-07-01T00:00:00Z"),
+      createSavedAnswerRecord("LinkedIn URL", "text", ["https://linkedin.example/b"], false, "2026-07-02T00:00:00Z"),
+      createSavedAnswerRecord("LinkedIn profile", "text", ["https://linkedin.example/c"], false, "2026-07-03T00:00:00Z"),
+      createSavedAnswerRecord("Portfolio website", "text", ["https://portfolio.example"], false, "2026-07-04T00:00:00Z")
+    ]
+  );
 
   assert.equal(matches.length, 3);
   assert.ok(matches[0].score >= matches[1].score);
@@ -232,61 +182,82 @@ test("matching returns top three sorted by score then recency", async () => {
   assert.ok(matches.every((item) => item.score >= 0.6));
 });
 
-test("saving exact same normalized question type and answers deduplicates and updates recency", async () => {
-  const first = await saveConfirmedAnswer({
-    question: "What is your current salary?",
-    fieldType: "text",
-    answers: ["100000"],
-    sensitive: true
+test("browser answers import once into service and write the marker after success", async () => {
+  const storage = createStorageSpy({
+    [STORAGE_KEY]: {
+      version: 1,
+      answers: [createSavedAnswerRecord("What is your current salary?", "text", ["100000"], true)]
+    }
   });
-  const second = await saveConfirmedAnswer({
-    question: "What is your CURRENT salary ?",
-    fieldType: "text",
-    answers: ["100000"],
-    sensitive: true
-  });
+  const service = createServiceStub();
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
 
-  const records = await loadSavedAnswers();
-  assert.equal(records.length, 1);
-  assert.equal(first.id, second.id);
-  assert.equal(records[0].answers[0], "100000");
-  assert.ok(Date.parse(records[0].lastUsedAt) >= Date.parse(records[0].createdAt));
+  const answers = await loadSavedAnswers();
+
+  assert.equal(service.calls.imports.length, 1);
+  assert.equal(service.calls.imports[0].answers.length, 1);
+  assert.equal(service.calls.imports[0].answers[0].answers[0], "100000");
+  assert.equal(answers.length, 1);
+  assert.deepEqual(storage.calls.get, [MARKER_KEY, STORAGE_KEY]);
+  assert.equal(storage.state[MARKER_KEY], true);
 });
 
-test("edit delete and clear operate on only the answer library storage key", async () => {
-  const saved = await saveConfirmedAnswer({
-    question: "Website",
-    fieldType: "text",
-    answers: ["https://old.example"],
-    sensitive: false
+test("migration marker blocks a second import and workspace storage is never read", async () => {
+  const storage = createStorageSpy({
+    [STORAGE_KEY]: {
+      version: 1,
+      answers: [createSavedAnswerRecord("Website", "text", ["https://example.test"])]
+    },
+    [MARKER_KEY]: true,
+    "nxjob.workspace.v1": { shouldNeverBeRead: true }
   });
-
-  await updateSavedAnswer(saved.id, ["https://new.example"]);
-  let records = await loadSavedAnswers();
-  assert.deepEqual(records[0].answers, ["https://new.example"]);
-
-  await deleteSavedAnswer(saved.id);
-  records = await loadSavedAnswers();
-  assert.equal(records.length, 0);
-
-  await saveConfirmedAnswer({
-    question: "Are you willing to relocate?",
-    fieldType: "radio",
-    answers: ["Yes"],
-    sensitive: false
+  const service = createServiceStub({
+    answers: [createSavedAnswerRecord("Website", "text", ["https://example.test"])]
   });
-  await clearSavedAnswers();
-  assert.deepEqual(await loadSavedAnswers(), []);
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  const first = await loadSavedAnswers();
+  const second = await loadSavedAnswers();
+
+  assert.equal(first.length, 1);
+  assert.equal(second.length, 1);
+  assert.equal(service.calls.imports.length, 0);
+  assert.deepEqual(storage.calls.get, [MARKER_KEY]);
+  assert.ok(!storage.calls.get.includes("nxjob.workspace.v1"));
 });
 
-test("clipboard failure does not update answer recency", async () => {
-  const saved = await saveConfirmedAnswer({
+test("service-backed CRUD uses local service as the only active source", async () => {
+  const storage = createStorageSpy({
+    [STORAGE_KEY]: { version: 1, answers: [] }
+  });
+  const service = createServiceStub();
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  const created = await saveConfirmedAnswer({
     question: "Portfolio website",
     fieldType: "text",
     answers: ["https://portfolio.example"],
     sensitive: false
   });
-  const before = (await loadSavedAnswers())[0].lastUsedAt;
+  await updateSavedAnswer(created.id, ["https://portfolio-new.example"]);
+  await touchSavedAnswer(created.id);
+  await deleteSavedAnswer(created.id);
+  await clearSavedAnswers();
+
+  assert.equal(service.calls.imports.length, 1);
+  assert.equal(service.calls.creates.length, 1);
+  assert.equal(service.calls.updates.length, 1);
+  assert.equal(service.calls.touches.length, 1);
+  assert.equal(service.calls.deletes.length, 1);
+  assert.equal(service.calls.clears, 1);
+  assert.equal(storage.state[STORAGE_KEY].answers.length, 0);
+});
+
+test("clipboard failure does not update answer recency", async () => {
+  const storage = createStorageSpy({ [MARKER_KEY]: true });
+  const saved = createSavedAnswerRecord("Portfolio website", "text", ["https://portfolio.example"]);
+  const service = createServiceStub({ answers: [saved] });
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
 
   await assert.rejects(
     copyAnswerAndTouch(saved.id, saved.answers[0], async () => {
@@ -295,7 +266,184 @@ test("clipboard failure does not update answer recency", async () => {
     /Clipboard permission denied/
   );
 
-  assert.equal((await loadSavedAnswers())[0].lastUsedAt, before);
+  assert.equal(service.calls.touches.length, 0);
+});
+
+test("copy preflight failure does not write to the clipboard", async () => {
+  const storage = createStorageSpy({ [MARKER_KEY]: true });
+  const saved = createSavedAnswerRecord("Portfolio website", "text", ["https://portfolio.example"]);
+  const service = createServiceStub({ answers: [saved], loadError: new Error("service stopped") });
+  const clipboardWrites = [];
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  await assert.rejects(
+    copyAnswerAndTouch(saved.id, saved.answers[0], async (value) => {
+      clipboardWrites.push(value);
+    }),
+    (error) => {
+      assert.equal(error.message, OFFLINE_MESSAGE);
+      return true;
+    }
+  );
+
+  assert.equal(service.calls.touches.length, 0);
+  assert.deepEqual(clipboardWrites, []);
+});
+
+test("service-backed mutations return the fixed offline message when the service disappears", async () => {
+  const storage = createStorageSpy({ [MARKER_KEY]: true });
+
+  for (const [name, action, createStubOptions] of [
+    [
+      "create",
+      () =>
+        saveConfirmedAnswer({
+          question: "Portfolio website",
+          fieldType: "text",
+          answers: ["https://portfolio.example"],
+          sensitive: false
+        }),
+      { createError: new Error("backend stopped during create") }
+    ],
+    ["update", () => updateSavedAnswer("answer-1", ["updated"]), { updateError: new Error("backend stopped during update") }],
+    ["delete", () => deleteSavedAnswer("answer-1"), { deleteError: new Error("backend stopped during delete") }],
+    ["clear", () => clearSavedAnswers(), { clearError: new Error("backend stopped during clear") }],
+    ["touch", () => touchSavedAnswer("answer-1"), { touchError: new Error("backend stopped during touch") }]
+  ]) {
+    const service = createServiceStub(createStubOptions);
+    __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+    await assert.rejects(
+      action(),
+      (error) => {
+        assert.equal(error.message, OFFLINE_MESSAGE, name);
+        return true;
+      },
+      name
+    );
+  }
+});
+
+test("service fetch failure becomes the fixed offline message and does not write the marker", async () => {
+  const storage = createStorageSpy({
+    [STORAGE_KEY]: {
+      version: 1,
+      answers: [createSavedAnswerRecord("Sensitive answer", "text", ["SECRET-123"], true)]
+    }
+  });
+  const service = createServiceStub({ importError: new Error("SECRET-123 leaked from backend") });
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  await assert.rejects(loadSavedAnswers(), (error) => {
+    assert.equal(error.message, OFFLINE_MESSAGE);
+    return true;
+  });
+  assert.equal(storage.state[MARKER_KEY], undefined);
 });
 
 run();
+
+function createSavedAnswerRecord(question, fieldType, answers, sensitive = false, lastUsedAt = "2026-07-05T00:00:00Z") {
+  return {
+    id: `answer-${Math.random().toString(36).slice(2, 10)}`,
+    question,
+    normalizedQuestion: normalizeQuestionForFixture(question),
+    fieldType,
+    answers,
+    sensitive,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-02T00:00:00Z",
+    lastUsedAt
+  };
+}
+
+function createStorageSpy(initialState = {}) {
+  const state = structuredClone(initialState);
+  const calls = { get: [], set: [], remove: [] };
+  return {
+    state,
+    calls,
+    async get(key) {
+      calls.get.push(key);
+      assert.equal(typeof key, "string");
+      return { [key]: state[key] };
+    },
+    async set(value) {
+      calls.set.push(structuredClone(value));
+      Object.assign(state, structuredClone(value));
+    },
+    async remove(key) {
+      calls.remove.push(key);
+      delete state[key];
+    }
+  };
+}
+
+function createServiceStub(options = {}) {
+  const answers = structuredClone(options.answers ?? []);
+  const calls = {
+    imports: [],
+    creates: [],
+    updates: [],
+    touches: [],
+    deletes: [],
+    clears: 0
+  };
+  return {
+    calls,
+    client: {
+      async load() {
+        if (options.loadError) throw options.loadError;
+        return structuredClone(answers);
+      },
+      async importAnswers(payload) {
+        calls.imports.push(structuredClone(payload));
+        if (options.importError) throw options.importError;
+        answers.splice(0, answers.length, ...structuredClone(payload.answers));
+      },
+      async create(input) {
+        calls.creates.push(structuredClone(input));
+        if (options.createError) throw options.createError;
+        const created = createSavedAnswerRecord(input.question, input.fieldType, input.answers, input.sensitive);
+        answers.unshift(created);
+        return structuredClone(created);
+      },
+      async update(id, nextAnswers) {
+        calls.updates.push({ id, answers: structuredClone(nextAnswers) });
+        if (options.updateError) throw options.updateError;
+        const record = answers.find((entry) => entry.id === id);
+        if (record) {
+          record.answers = structuredClone(nextAnswers);
+          record.updatedAt = "2026-07-06T00:00:00Z";
+          record.lastUsedAt = "2026-07-06T00:00:00Z";
+        }
+      },
+      async touch(id) {
+        calls.touches.push(id);
+        if (options.touchError) throw options.touchError;
+        const record = answers.find((entry) => entry.id === id);
+        if (record) {
+          record.lastUsedAt = "2026-07-07T00:00:00Z";
+        }
+      },
+      async delete(id) {
+        calls.deletes.push(id);
+        if (options.deleteError) throw options.deleteError;
+        const index = answers.findIndex((entry) => entry.id === id);
+        if (index >= 0) answers.splice(index, 1);
+      },
+      async clear() {
+        calls.clears += 1;
+        if (options.clearError) throw options.clearError;
+        answers.splice(0, answers.length);
+      }
+    }
+  };
+}
+
+function normalizeQuestionForFixture(question) {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

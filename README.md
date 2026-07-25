@@ -34,9 +34,15 @@ NxJob does not automatically submit applications, bypass verification, bulk scra
 
 Tailor Resume uses a private Master Resume, a configured resume output folder, and the local service to generate DOCX and Markdown resume artifacts. Generated resumes and private configuration stay local.
 
+The saved-answer library is also local-service-owned. Its active file lives at `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`. A new extension install can read that same library as soon as the Local Service is running.
+
 ## Known MVP Limits
 
 - Find Form Answers detects supported form questions, matches saved local answers, and lets the user copy or save confirmed answers. It does not fill fields, choose options, submit forms, or send form content to AI in this milestone.
+- Saved answers do not use AI, cloud sync, or a browser-offline fallback copy. If the Local Service is stopped, Find Form Answers can still scan the page, but it cannot show, save, edit, delete, clear, or copy answers until the service is back.
+- Browser migration is one-time only from the legacy `nxjob.form-answer-library.v1` key. NxJob does not migrate workspace AI drafts or `nxjob.workspace.v1` data into the saved-answer library.
+- Deleting an older extension install removes that install's Chrome storage, so NxJob cannot recover those browser-stored answers later. The service-backed library remains available to replacement extension installs.
+- Workday searchable dropdowns, multi-level dropdowns, and other search-in-dropdown controls remain manual-selection cases in the current milestone. NxJob does not currently promise automatic recognition or saved-answer capture for those controls.
 - JD capture still works best when the user selects the job description text before capture.
 - Tailor Resume output is usable for MVP testing, but layout and model-specific quality can still improve.
 - Windows is the primary tested platform. Core business logic is kept platform-neutral for future macOS support.
