@@ -34,7 +34,6 @@ Local runtime layer:
 - Workflow orchestration.
 - Cache and database.
 - DOCX rendering.
-- Form answer drafting runtime.
 - Prompt and workflow logs.
 - Future MCP server wrapper.
 
@@ -42,21 +41,21 @@ AI layer:
 
 - Sponsorship ambiguity analysis when JD and local rules are insufficient.
 - Resume evidence selection and rewrite.
-- Complex form-answer drafting.
+- ATS form scanning and matching remain in the extension, while the canonical saved-answer library is owned by the Local Service and accessed through loopback REST only. Saved answers do not call AI.
 
 ## Phase Rules
 
 Phase 1:
 
-- Implement three extension buttons: `Analyze Sponsorship`, `Tailor Resume`, `Fill Form Answer`.
-- Implement REST endpoints for the three workflows.
+- Implement three extension buttons: `Analyze Sponsorship`, `Tailor Resume`, `Find Form Answers`.
+- Implement REST endpoints for sponsorship analysis, resume tailoring, and the saved-answer library used by `Find Form Answers`. Form scanning stays browser-local in this milestone.
 - Store data locally.
 - Keep schemas MCP-compatible.
 - Do not implement MCP server.
 
 Phase 2:
 
-- Expose the same workflows as MCP tools: `analyze_sponsorship`, `tailor_resume`, `draft_form_answer_from_resume_bullets`.
+- Expose the service workflows as MCP tools: `analyze_sponsorship`, `tailor_resume`.
 - Reuse business logic. Do not fork the workflows for MCP.
 
 Phase 3:

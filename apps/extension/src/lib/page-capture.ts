@@ -1,6 +1,6 @@
 import { browser } from "wxt/browser";
 
-import type { FieldContext } from "./form-context";
+import type { CapturedFormAnswer, DetectedFormField } from "./form-context";
 
 export type PageContext = {
   url: string;
@@ -21,6 +21,13 @@ export type PageContext = {
   pageTextExcerpt: string;
 };
 
+export type FormCaptureBinding = {
+  tabId: number;
+  url: string;
+};
+
+let activeFormCaptureBinding: FormCaptureBinding | null = null;
+
 export async function captureActiveTabContext(): Promise<PageContext> {
   const tab = await getActiveTab();
   return sendMessageWithContentScriptFallback<PageContext>(tab.id, {
@@ -28,35 +35,32 @@ export async function captureActiveTabContext(): Promise<PageContext> {
   });
 }
 
-export async function captureActiveFieldContext(): Promise<FieldContext> {
+export async function scanActiveTabFormFields(): Promise<DetectedFormField[]> {
   const tab = await getActiveTab();
-  return sendMessageWithContentScriptFallback<FieldContext>(tab.id, {
-    type: "NXJOB_CAPTURE_ACTIVE_FIELD_CONTEXT"
-  });
-}
-
-export async function scanActiveTabFormFields(): Promise<{ fields: FieldContext[]; url: string; title: string }> {
-  const tab = await getActiveTab();
-  return sendMessageWithContentScriptFallback<{ fields: FieldContext[]; url: string; title: string }>(tab.id, {
+  activeFormCaptureBinding = null;
+  const fields = await sendMessageWithContentScriptFallback<DetectedFormField[]>(tab.id, {
     type: "NXJOB_SCAN_FORM_FIELDS"
   });
+  activeFormCaptureBinding = { tabId: tab.id, url: tab.url ?? "" };
+  return fields;
 }
 
-export async function fillActiveField(value: string): Promise<{ filled: boolean }> {
+export async function captureFormFieldAnswer(fieldId: string): Promise<CapturedFormAnswer> {
   const tab = await getActiveTab();
-  return sendMessageWithContentScriptFallback<{ filled: boolean }>(tab.id, {
-    type: "NXJOB_FILL_ACTIVE_FIELD",
-    value
+  assertFormCaptureBinding(activeFormCaptureBinding, tab);
+  return sendMessageWithContentScriptFallback<CapturedFormAnswer>(tab.id, {
+    type: "NXJOB_CAPTURE_FORM_FIELD_ANSWER",
+    fieldId
   });
 }
 
-export async function fillFormFieldById(fieldId: string, value: string): Promise<{ filled: boolean }> {
-  const tab = await getActiveTab();
-  return sendMessageWithContentScriptFallback<{ filled: boolean }>(tab.id, {
-    type: "NXJOB_FILL_FIELD_BY_ID",
-    fieldId,
-    value
-  });
+export function assertFormCaptureBinding(
+  binding: FormCaptureBinding | null,
+  tab: { id: number; url?: string }
+): asserts binding is FormCaptureBinding {
+  if (!binding || binding.tabId !== tab.id || binding.url !== (tab.url ?? "")) {
+    throw new Error("NxJob form scan is no longer current. Rescan the page and retry.");
+  }
 }
 
 export async function listOpenTabUrls(): Promise<string[]> {

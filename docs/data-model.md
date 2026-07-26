@@ -7,6 +7,7 @@
 - Do not store secrets in plain application tables.
 - Keep source snapshots: JD, resume version, form question, and outcome evidence must be traceable.
 - Successful outcomes must feed future resume tailoring through `SuccessReference`.
+- The saved-answer library is not stored in SQLite. It lives only in the Local Service private JSON file at `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`.
 
 ## Core Objects
 
@@ -103,6 +104,39 @@ Fields:
 - `user_edited_answer`.
 - `filled_by_user_confirmation`: boolean.
 - `prompt_log_id`.
+
+Current scope note:
+
+- `FormAnswerDraft` is the legacy AI-draft record shape. It is not the active storage for the saved-answer library.
+- Confirmed saved answers are stored only in the Local Service private JSON file and are never copied into browser-offline storage, cloud sync, or `PromptLog`.
+- Legacy workspace AI drafts must not be migrated into the service-backed saved-answer library.
+
+### SavedAnswerLibrary File
+
+Represents the service-owned saved-answer store outside SQLite.
+
+Backing path:
+
+- `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`
+
+Ownership and lifecycle:
+
+- The Local Service is the only process that owns and writes this file.
+- The browser extension may migrate once from its old `nxjob.form-answer-library.v1` key into this file, then reads and writes the library only through loopback REST.
+- Removing an old extension instance also removes that extension's Chrome storage, so deleted-extension browser data cannot be recovered afterward.
+- A replacement extension can still read the same saved answers immediately once the Local Service is running, because the active library is keyed only by the service file path, not by an extension installation id.
+
+Stored fields per answer:
+
+- `id`
+- `question`
+- `normalizedQuestion`
+- `fieldType`
+- `answers`
+- `sensitive`
+- `createdAt`
+- `updatedAt`
+- `lastUsedAt`
 
 ### SuccessReference
 

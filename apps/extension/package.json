@@ -9,6 +9,8 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "typecheck": "wxt prepare && tsc --noEmit",
+    "test:sidepanel": "node --experimental-strip-types tests/sidepanel-form-answer.test.mjs",
+    "test:answers": "node --experimental-strip-types --loader ./tests/resolve-ts-loader.mjs tests/form-answer-library.test.mjs",
     "test:capture": "node --experimental-strip-types tests/page-capture.test.mjs"
   },
   "dependencies": {

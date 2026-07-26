@@ -179,7 +179,7 @@ Current page
 Actions
   Analyze Sponsorship
   Tailor Resume
-  Fill Form Answer
+  Find Form Answers
 
 Latest result
   JobLead id
@@ -225,7 +225,7 @@ Primary actions:
 ```text
 Analyze Sponsorship
 Tailor Resume
-Fill Form Answer
+Find Form Answers
 ```
 
 Rules:
@@ -308,7 +308,8 @@ Rules:
 ## Interaction Rules
 
 - User must click to capture.
-- User must review before form filling.
+- User must review before copying or saving form answers.
+- This milestone does not auto-fill fields, auto-select options, or submit forms.
 - User must submit applications manually.
 - AI output must come back through local record storage before being shown as a decision aid.
 - Do not use hidden background scraping.

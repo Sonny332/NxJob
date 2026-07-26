@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 
 import {
   canonicalizeLinkedInJobUrl,
+  captureFormFieldAnswer,
   cleanLinkedInJobDescriptionText,
   extractLinkedInJobDescriptionFromRoot,
   extractLinkedInJobId,
+  resetFormFieldRegistryForTest,
   resolveCaptureText,
-  resolveSelectedText
+  resolveSelectedText,
+  scanFormFields
 } from "../src/lib/form-context.ts";
+import { assertFormCaptureBinding } from "../src/lib/page-capture.ts";
 import { createWorkspaceRecord, emptyWorkflow, upsertWorkspaceJob } from "../src/lib/workspace-state.ts";
 
 const tests = [];
@@ -47,7 +51,7 @@ test("extractLinkedInJobDescriptionFromRoot reads single-job About the job secti
             Gencor is seeking an experienced Thermal Engineer.
             Key Responsibilities:
             Design and optimize thermal systems.
-            … more
+            ... more
             Benefits found in job post
             Vision insurance, 401(k)
             Requirements added by the job poster
@@ -64,14 +68,14 @@ test("extractLinkedInJobDescriptionFromRoot reads single-job About the job secti
   assert.match(text, /Gencor is seeking an experienced Thermal Engineer/);
   assert.match(text, /Benefits found in job post Vision insurance, 401\(k\)/);
   assert.match(text, /Requirements added by the job poster Bachelor's Degree/);
-  assert.doesNotMatch(text, /\.\.\. more|… more/);
+  assert.doesNotMatch(text, /\.\.\. more/);
 });
 
 test("cleanLinkedInJobDescriptionText removes LinkedIn visual expand label but keeps JD sections", () => {
   const text = cleanLinkedInJobDescriptionText(`
     About the job
     First paragraph.
-    … more
+    ... more
     Benefits found in job post
     Medical insurance
     Requirements added by the job poster
@@ -330,7 +334,501 @@ test("upsertWorkspaceJob clears workflow results when update_existing changes JD
   assert.equal(nextState.jobs[0].workflows.formAnswer.result, null);
 });
 
+test("scanFormFields skips value option and text reads until explicit capture", () => {
+  resetFormFieldRegistryForTest();
+  const readCounts = { value: 0, options: 0, selectedOptions: 0, textContent: 0, buttonText: 0 };
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [
+      createLabeledTextInput({
+        id: "full-name",
+        label: "Full name",
+        value: "Alice",
+        readCounts
+      }),
+      createSelectField({
+        id: "country",
+        label: "Country of residence",
+        value: "US",
+        options: ["United States", "Canada"],
+        readCounts
+      })
+    ]
+  });
+
+  const fields = scanFormFields();
+  assert.ok(Array.isArray(fields));
+  assert.equal(fields.length, 2);
+  assert.equal(fields[0].questionText, "Full name");
+  assert.equal(fields[1].inputType, "select");
+  assert.equal(readCounts.value, 0);
+  assert.equal(readCounts.options, 0);
+  assert.equal(readCounts.selectedOptions, 0);
+  assert.equal(readCounts.textContent, 0);
+
+  const captured = captureFormFieldAnswer(fields[0].fieldId);
+  assert.deepEqual(captured.answers, ["Alice"]);
+  assert.equal(readCounts.value, 1);
+});
+
+test("scanFormFields merges same-name radios and checkboxes under fieldset legend", () => {
+  resetFormFieldRegistryForTest();
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [
+      createChoiceGroup({
+        name: "workAuth",
+        type: "radio",
+        legend: "Are you legally authorized to work in the United States?",
+        options: [
+          { value: "Yes", checked: true },
+          { value: "No", checked: false }
+        ]
+      }),
+      createChoiceGroup({
+        name: "benefits",
+        type: "checkbox",
+        legend: "Benefits",
+        options: [
+          { value: "Health", checked: true },
+          { value: "Dental", checked: false }
+        ]
+      })
+    ]
+  });
+
+  const fields = scanFormFields();
+  assert.equal(fields.length, 2);
+  assert.equal(fields[0].inputType, "radio");
+  assert.equal(fields[1].inputType, "checkbox");
+
+  const radioAnswers = captureFormFieldAnswer(fields[0].fieldId);
+  const checkboxAnswers = captureFormFieldAnswer(fields[1].fieldId);
+  assert.deepEqual(radioAnswers.answers, ["Yes"]);
+  assert.deepEqual(checkboxAnswers.answers, ["Health"]);
+});
+
+test("custom select without reliable label is manual only while labeled custom select can capture on demand", () => {
+  resetFormFieldRegistryForTest();
+  const readCounts = { value: 0, options: 0, selectedOptions: 0, textContent: 0, buttonText: 0 };
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [
+      createCustomSelect({
+        id: "custom-1",
+        label: "",
+        valueText: "Choose one",
+        readCounts
+      }),
+      createCustomSelect({
+        id: "custom-2",
+        label: "Country",
+        valueText: "United States",
+        readCounts
+      })
+    ]
+  });
+
+  const fields = scanFormFields();
+  assert.equal(fields.length, 2);
+  assert.equal(fields[0].inputType, "custom_select");
+  assert.equal(fields[0].questionText, "");
+  assert.equal(fields[0].recognitionConfidence, 0);
+  assert.equal(fields[1].questionText, "Country");
+  assert.equal(readCounts.buttonText, 0);
+
+  assert.throws(() => captureFormFieldAnswer(fields[0].fieldId), /manually select/i);
+  const captured = captureFormFieldAnswer(fields[1].fieldId);
+  assert.deepEqual(captured.answers, ["United States"]);
+  assert.equal(readCounts.buttonText, 1);
+});
+
+test("captureFormFieldAnswer throws when registry entry is stale", () => {
+  resetFormFieldRegistryForTest();
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [createLabeledTextInput({ id: "email", label: "Email", value: "a@example.com", readCounts: freshReadCounts() })]
+  });
+
+  const fields = scanFormFields();
+  fields[0].fieldId = "missing";
+  assert.throws(() => captureFormFieldAnswer(fields[0].fieldId), /rescan/i);
+});
+
+test("same-name choices stay separate by fieldset and use the legend instead of option labels", () => {
+  resetFormFieldRegistryForTest();
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [
+      createChoiceGroup({
+        name: "eligibility",
+        type: "radio",
+        legend: "Are you legally authorized to work?",
+        options: [{ value: "Yes", checked: true }]
+      }),
+      createChoiceGroup({
+        name: "eligibility",
+        type: "radio",
+        legend: "Will you require visa sponsorship?",
+        options: [{ value: "Yes", checked: false }]
+      })
+    ]
+  });
+
+  const fields = scanFormFields();
+  assert.equal(fields.length, 2);
+  assert.deepEqual(fields.map((field) => field.questionText), [
+    "Are you legally authorized to work?",
+    "Will you require visa sponsorship?"
+  ]);
+});
+
+test("choice groups without a legend do not use an individual option label as the question", () => {
+  resetFormFieldRegistryForTest();
+  const choice = createChoiceGroup({
+    name: "eligibility",
+    type: "radio",
+    legend: "",
+    options: [{ value: "Yes", checked: true }]
+  });
+  choice.elements[0].closest = (selector) => (selector === "label" ? makeLabel("Yes") : choice.elements[0].parentElement);
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [choice]
+  });
+
+  assert.deepEqual(scanFormFields(), []);
+});
+
+test("wrapping label removes nested controls from a clone without reading the live control text", () => {
+  resetFormFieldRegistryForTest();
+  const control = createNestedWrappingLabelInput();
+  installScanDocument({
+    locationHref: "https://example.com/apply",
+    title: "Apply",
+    controls: [control]
+  });
+
+  const fields = scanFormFields();
+  assert.equal(fields[0].questionText, "Preferred name");
+});
+
+test("capture rejects a page navigation or disconnected scanned field", () => {
+  resetFormFieldRegistryForTest();
+  const readCounts = freshReadCounts();
+  const control = createLabeledTextInput({ id: "email", label: "Email", value: "a@example.com", readCounts });
+  installScanDocument({ locationHref: "https://example.com/apply", title: "Apply", controls: [control] });
+  const [field] = scanFormFields();
+
+  globalThis.window.location.href = "https://example.com/other";
+  assert.throws(() => captureFormFieldAnswer(field.fieldId), /rescan/i);
+
+  globalThis.window.location.href = "https://example.com/apply";
+  const [rescanned] = scanFormFields();
+  control.elements[0].isConnected = false;
+  assert.throws(() => captureFormFieldAnswer(rescanned.fieldId), /rescan/i);
+  assert.equal(readCounts.value, 0);
+});
+
+test("a later scan batch invalidates an earlier field ID on the same page", () => {
+  resetFormFieldRegistryForTest();
+  const control = createLabeledTextInput({
+    id: "phone",
+    label: "Phone",
+    value: "555-0100",
+    readCounts: freshReadCounts()
+  });
+  installScanDocument({ locationHref: "https://example.com/apply", title: "Apply", controls: [control] });
+  const [first] = scanFormFields();
+  const [second] = scanFormFields();
+
+  assert.notEqual(first.fieldId, second.fieldId);
+  assert.throws(() => captureFormFieldAnswer(first.fieldId), /rescan/i);
+});
+
+test("capture binding rejects another active tab or a navigated tab", () => {
+  assert.throws(
+    () => assertFormCaptureBinding({ tabId: 7, url: "https://example.com/apply" }, { id: 8, url: "https://example.com/apply" }),
+    /rescan/i
+  );
+  assert.throws(
+    () => assertFormCaptureBinding({ tabId: 7, url: "https://example.com/apply" }, { id: 7, url: "https://example.com/other" }),
+    /rescan/i
+  );
+  assert.doesNotThrow(() =>
+    assertFormCaptureBinding({ tabId: 7, url: "https://example.com/apply" }, { id: 7, url: "https://example.com/apply" })
+  );
+});
+
 for (const { name, fn } of tests) {
   fn();
   console.log(`ok - ${name}`);
+}
+
+function freshReadCounts() {
+  return { value: 0, options: 0, selectedOptions: 0, textContent: 0, buttonText: 0 };
+}
+
+function installScanDocument({ locationHref, title, controls }) {
+  const body = { innerText: "Body text" };
+  const form = makeElement("form", { textContent: "" });
+  const labelsByFor = new Map();
+  const ids = new Map();
+  const allControls = [];
+
+  for (const control of controls) {
+    allControls.push(...control.elements);
+    for (const [id, label] of control.labelsByFor.entries()) labelsByFor.set(id, label);
+    for (const [id, node] of control.ids.entries()) ids.set(id, node);
+  }
+
+  globalThis.window = {
+    location: { href: locationHref, hostname: "example.com" },
+    getSelection: () => ({ toString: () => "" }),
+    addEventListener() {},
+    getComputedStyle: () => ({ visibility: "visible", display: "block" })
+  };
+  globalThis.document = {
+    body,
+    title,
+    activeElement: null,
+    addEventListener() {},
+    querySelectorAll(selector) {
+      if (selector === "input, textarea, select, button[aria-haspopup=\"listbox\"]") return allControls;
+      const match = selector.match(/^label\[for="(.+)"\]$/);
+      if (match) return labelsByFor.get(match[1]) ? [labelsByFor.get(match[1])] : [];
+      return [];
+    },
+    querySelector(selector) {
+      const match = selector.match(/^label\[for="(.+)"\]$/);
+      if (match) return labelsByFor.get(match[1]) ?? null;
+      return null;
+    },
+    getElementById(id) {
+      return ids.get(id) ?? null;
+    }
+  };
+  globalThis.CSS = { escape: (value) => value };
+  form.ownerDocument = globalThis.document;
+}
+
+function createLabeledTextInput({ id, label, value, readCounts }) {
+  const labelNode = makeLabel(label);
+  const input = makeInput({
+    id,
+    type: "text",
+    name: id,
+    value,
+    readCounts,
+    required: true
+  });
+  return {
+    elements: [input],
+    labelsByFor: new Map([[id, labelNode]]),
+    ids: new Map([[id, input]])
+  };
+}
+
+function createSelectField({ id, label, value, options, readCounts }) {
+  const labelNode = makeLabel(label);
+  const select = makeSelect({ id, name: id, value, options, readCounts });
+  return {
+    elements: [select],
+    labelsByFor: new Map([[id, labelNode]]),
+    ids: new Map([[id, select]])
+  };
+}
+
+function createChoiceGroup({ name, type, legend, options }) {
+  const fieldset = makeElement("fieldset", {});
+  const legendNode = makeElement("legend", { textContent: legend, parentElement: fieldset });
+  fieldset.querySelector = (selector) => (selector === "legend" ? legendNode : null);
+  const elements = options.map((option, index) =>
+    makeInput({
+      id: `${name}-${index}`,
+      type,
+      name,
+      value: option.value,
+      checked: option.checked,
+      readCounts: freshReadCounts(),
+      fieldset
+    })
+  );
+  return {
+    elements,
+    labelsByFor: new Map(),
+    ids: new Map(elements.map((element) => [element.id, element]))
+  };
+}
+
+function createCustomSelect({ id, label, valueText, readCounts }) {
+  const labelNode = label ? makeLabel(label) : null;
+  const button = makeButton({ id, valueText, readCounts });
+  return {
+    elements: [button],
+    labelsByFor: label ? new Map([[id, labelNode]]) : new Map(),
+    ids: new Map([[id, button]])
+  };
+}
+
+function createNestedWrappingLabelInput() {
+  let removed = false;
+  const label = {
+    cloneNode() {
+      return {
+        querySelectorAll() {
+          return [
+            {
+              remove() {
+                removed = true;
+              }
+            }
+          ];
+        },
+        get textContent() {
+          return removed ? "Preferred name" : "Preferred name hidden control";
+        }
+      };
+    }
+  };
+  Object.defineProperty(label, "textContent", {
+    get() {
+      throw new Error("scan must not read live wrapping label text");
+    }
+  });
+  const input = makeInput({
+    id: "preferred-name",
+    type: "text",
+    name: "preferred-name",
+    value: "Ada",
+    readCounts: freshReadCounts()
+  });
+  input.closest = (selector) => (selector === "label" ? label : null);
+  return {
+    elements: [input],
+    labelsByFor: new Map(),
+    ids: new Map([[input.id, input]])
+  };
+}
+
+function makeLabel(text) {
+  return {
+    textContent: text,
+    cloneNode() {
+      return { textContent: text, querySelectorAll: () => [] };
+    }
+  };
+}
+
+function makeInput({ id, type, name, value, checked = false, readCounts, required = false, fieldset = null }) {
+  const element = makeElement("input", {
+    id,
+    parentElement: fieldset,
+    required,
+    getAttribute(nameAttr) {
+      if (nameAttr === "type") return type;
+      if (nameAttr === "name") return name;
+      if (nameAttr === "aria-labelledby") return "";
+      if (nameAttr === "autocomplete") return "";
+      return "";
+    }
+  });
+  Object.defineProperty(element, "value", {
+    get() {
+      readCounts.value += 1;
+      return value;
+    }
+  });
+  element.checked = checked;
+  return element;
+}
+
+function makeSelect({ id, name, value, options, readCounts }) {
+  const element = makeElement("select", {
+    id,
+    required: false,
+    getAttribute(nameAttr) {
+      if (nameAttr === "name") return name;
+      if (nameAttr === "aria-labelledby") return "";
+      return "";
+    }
+  });
+  Object.defineProperty(element, "value", {
+    get() {
+      readCounts.value += 1;
+      return value;
+    }
+  });
+  Object.defineProperty(element, "options", {
+    get() {
+      readCounts.options += 1;
+      return options.map((option) => ({ text: option, value: option }));
+    }
+  });
+  Object.defineProperty(element, "selectedOptions", {
+    get() {
+      readCounts.selectedOptions += 1;
+      return [{ text: value }];
+    }
+  });
+  return element;
+}
+
+function makeButton({ id, valueText, readCounts }) {
+  const element = makeElement("button", {
+    id,
+    getAttribute(nameAttr) {
+      if (nameAttr === "aria-haspopup") return "listbox";
+      if (nameAttr === "aria-labelledby") return "";
+      return "";
+    }
+  });
+  Object.defineProperty(element, "textContent", {
+    get() {
+      readCounts.buttonText += 1;
+      return valueText;
+    }
+  });
+  return element;
+}
+
+function makeElement(tagName, overrides) {
+  return {
+    tagName: tagName.toUpperCase(),
+    parentElement: null,
+    children: [],
+    required: false,
+    matches(selector) {
+      return selector === tagName || selector === tagName.toLowerCase();
+    },
+    closest(selector) {
+      if (selector === "label") return null;
+      if (selector === "fieldset") return this.parentElement?.tagName === "FIELDSET" ? this.parentElement : null;
+      return null;
+    },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    cloneNode() {
+      return {
+        querySelectorAll: () => [],
+        removeChild() {},
+        textContent: ""
+      };
+    },
+    getBoundingClientRect() {
+      return { width: 120, height: 32 };
+    },
+    dispatchEvent() {},
+    ...overrides
+  };
 }

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -13,6 +16,10 @@ from nxjob.schemas.core import (
     AiProviderProfileRecord,
     DolCacheDirectoryUpdate,
     MasterResumeProfile,
+    SavedAnswerCreate,
+    SavedAnswerRecord,
+    SavedAnswerUpdate,
+    SavedAnswersImportEntry,
     ResumeOutputDirectoryUpdate,
 )
 from nxjob.storage.paths import app_data_dir
@@ -23,9 +30,16 @@ MASTER_RESUME_FILE = "master-resume.json"
 AI_PROVIDER_FILE = "ai-provider.json"
 RESUME_OUTPUT_FILE = "resume-output.json"
 DOL_CACHE_FILE = "dol-cache.json"
+FORM_ANSWER_LIBRARY_FILE = "form-answer-library.v1.json"
+FORM_ANSWER_LIBRARY_VERSION = 1
+_FORM_ANSWER_LIBRARY_LOCK = Lock()
 
 
 class PrivateConfigError(RuntimeError):
+    pass
+
+
+class PrivateConfigNotFoundError(PrivateConfigError):
     pass
 
 
@@ -58,6 +72,10 @@ def private_resume_output_path() -> Path:
 
 def private_dol_cache_path() -> Path:
     return private_config_dir() / DOL_CACHE_FILE
+
+
+def private_form_answer_library_path() -> Path:
+    return private_config_dir() / FORM_ANSWER_LIBRARY_FILE
 
 
 def configured_master_resume_path() -> Path | None:
@@ -455,6 +473,150 @@ def save_dol_cache_dir(payload: DolCacheDirectoryUpdate) -> Path:
     return path
 
 
+def list_saved_answers() -> list[SavedAnswerRecord]:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        return _read_form_answer_library_payload()["answers"]
+
+
+def create_saved_answer(payload: SavedAnswerCreate) -> SavedAnswerRecord:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        answers = _read_form_answer_library_payload()["answers"]
+        now = _utc_now()
+        normalized_question = _normalize_question(payload.question)
+        normalized_key = _normalize_question_key(payload.question)
+        normalized_answers = _normalize_answers(payload.answers)
+        dedupe_key = _saved_answer_dedupe_key(normalized_key, payload.fieldType, normalized_answers)
+        existing_index = next(
+            (
+                index
+                for index, current in enumerate(answers)
+                if _saved_answer_record_dedupe_key(current) == dedupe_key
+            ),
+            None,
+        )
+        if existing_index is None:
+            record = SavedAnswerRecord(
+                id=f"answer_{uuid4().hex[:12]}",
+                question=normalized_question,
+                normalizedQuestion=normalized_key,
+                fieldType=payload.fieldType,
+                answers=normalized_answers,
+                sensitive=payload.sensitive,
+                createdAt=now,
+                updatedAt=now,
+                lastUsedAt=now,
+            )
+            answers.insert(0, record)
+        else:
+            existing = answers[existing_index]
+            record = existing.model_copy(
+                update={
+                    "question": normalized_question,
+                    "sensitive": payload.sensitive,
+                    "updatedAt": now,
+                    "lastUsedAt": now,
+                }
+            )
+            answers[existing_index] = record
+        _write_form_answer_library_payload(answers)
+        return record
+
+
+def update_saved_answer(answer_id: str, payload: SavedAnswerUpdate) -> SavedAnswerRecord:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        answers = _read_form_answer_library_payload()["answers"]
+        index = _find_saved_answer_index(answers, answer_id)
+        existing = answers[index]
+        now = _utc_now()
+        updated = existing.model_copy(
+            update={
+                "answers": _normalize_answers(payload.answers),
+                "sensitive": existing.sensitive if payload.sensitive is None else payload.sensitive,
+                "updatedAt": now,
+                "lastUsedAt": now,
+            }
+        )
+        answers[index] = updated
+        _write_form_answer_library_payload(answers)
+        return updated
+
+
+def touch_saved_answer(answer_id: str) -> SavedAnswerRecord:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        answers = _read_form_answer_library_payload()["answers"]
+        index = _find_saved_answer_index(answers, answer_id)
+        touched = answers[index].model_copy(update={"lastUsedAt": _utc_now()})
+        answers[index] = touched
+        _write_form_answer_library_payload(answers)
+        return touched
+
+
+def delete_saved_answer(answer_id: str) -> None:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        answers = _read_form_answer_library_payload()["answers"]
+        index = _find_saved_answer_index(answers, answer_id)
+        del answers[index]
+        _write_form_answer_library_payload(answers)
+
+
+def clear_saved_answers() -> None:
+    path = private_form_answer_library_path()
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        if path.exists():
+            path.unlink()
+
+
+def import_saved_answers(entries: list[SavedAnswersImportEntry]) -> list[SavedAnswerRecord]:
+    with _FORM_ANSWER_LIBRARY_LOCK:
+        answers = _read_form_answer_library_payload()["answers"]
+        for entry in entries:
+            normalized_question = _normalize_question(entry.question)
+            normalized_key = _normalize_question_key(entry.question)
+            normalized_answers = _normalize_answers(entry.answers)
+            dedupe_key = _saved_answer_dedupe_key(normalized_key, entry.fieldType, normalized_answers)
+            existing_index = next(
+                (
+                    index
+                    for index, current in enumerate(answers)
+                    if _saved_answer_record_dedupe_key(current) == dedupe_key
+                ),
+                None,
+            )
+            existing = answers[existing_index] if existing_index is not None else None
+            record = SavedAnswerRecord(
+                id=existing.id if existing is not None else f"answer_{uuid4().hex[:12]}",
+                question=normalized_question,
+                normalizedQuestion=normalized_key,
+                fieldType=entry.fieldType,
+                answers=normalized_answers,
+                sensitive=(existing.sensitive if existing is not None else False) or entry.sensitive,
+                createdAt=_earliest_timestamp(
+                    entry.createdAt,
+                    existing.createdAt if existing is not None else "",
+                ),
+                updatedAt=_latest_timestamp(
+                    entry.updatedAt,
+                    existing.updatedAt if existing is not None else "",
+                    entry.createdAt,
+                    existing.createdAt if existing is not None else "",
+                ),
+                lastUsedAt=_latest_timestamp(
+                    entry.lastUsedAt,
+                    entry.updatedAt,
+                    existing.lastUsedAt if existing is not None else "",
+                    existing.updatedAt if existing is not None else "",
+                    entry.createdAt,
+                    existing.createdAt if existing is not None else "",
+                ),
+            )
+            if existing_index is None:
+                answers.append(record)
+            else:
+                answers[existing_index] = record
+        _write_form_answer_library_payload(answers)
+        return answers
+
+
 def _validate_dol_cache_path(path: Path) -> None:
     parts = {part.lower() for part in path.parts}
     if "extension" in parts or "localservice" in parts:
@@ -530,3 +692,134 @@ def _default_profile_name(provider: str, model: str) -> str:
 
 def _new_profile_id() -> str:
     return f"aip_{uuid4().hex[:12]}"
+
+
+def _read_form_answer_library_payload() -> dict[str, object]:
+    path = private_form_answer_library_path()
+    if not path.exists():
+        return {"version": FORM_ANSWER_LIBRARY_VERSION, "answers": []}
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PrivateConfigError("Saved answers file is unreadable.") from exc
+
+    if not isinstance(data, dict):
+        raise PrivateConfigError("Saved answers file is unreadable.")
+
+    try:
+        version = int(data.get("version", FORM_ANSWER_LIBRARY_VERSION))
+    except (TypeError, ValueError) as exc:
+        raise PrivateConfigError("Saved answers file is unreadable.") from exc
+    if version != FORM_ANSWER_LIBRARY_VERSION:
+        raise PrivateConfigError("Saved answers file is unreadable.")
+
+    raw_answers = data.get("answers", [])
+    if not isinstance(raw_answers, list):
+        raise PrivateConfigError("Saved answers file is unreadable.")
+
+    try:
+        answers = [SavedAnswerRecord.model_validate(item) for item in raw_answers]
+    except ValidationError as exc:
+        raise PrivateConfigError("Saved answers file is unreadable.") from exc
+    return {"version": version, "answers": answers}
+
+
+def _write_form_answer_library_payload(answers: list[SavedAnswerRecord]) -> None:
+    path = private_form_answer_library_path()
+    _ensure_private_dir(path.parent)
+    payload = {
+        "version": FORM_ANSWER_LIBRARY_VERSION,
+        "answers": [answer.model_dump() for answer in answers],
+    }
+    _atomic_write_private_json(path, payload)
+
+
+def _atomic_write_private_json(path: Path, data: dict[str, object]) -> None:
+    tmp_path = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        if os.name != "nt":
+            tmp_path.chmod(0o600)
+        tmp_path.replace(path)
+    except OSError as exc:
+        raise PrivateConfigError("Saved answers file could not be written.") from exc
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+def _normalize_question(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _normalize_question_key(value: str) -> str:
+    normalized = _normalize_question(value).lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return " ".join(normalized.split()).strip()
+
+
+def _normalize_answers(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        clean = " ".join(str(value).split()).strip()
+        if not clean or clean in seen:
+            continue
+        normalized.append(clean)
+        seen.add(clean)
+    if not normalized:
+        raise PrivateConfigError("Saved answers must include at least one non-empty value.")
+    return normalized
+
+
+def _find_saved_answer_index(answers: list[SavedAnswerRecord], answer_id: str) -> int:
+    for index, answer in enumerate(answers):
+        if answer.id == answer_id:
+            return index
+    raise PrivateConfigNotFoundError("Saved answer was not found.")
+
+
+def _first_timestamp(*values: str) -> str:
+    for value in values:
+        if str(value).strip():
+            return str(value).strip()
+    return _utc_now()
+
+
+def _earliest_timestamp(*values: str) -> str:
+    return _select_timestamp(min, *values)
+
+
+def _latest_timestamp(*values: str) -> str:
+    return _select_timestamp(max, *values)
+
+
+def _select_timestamp(selector, *values: str) -> str:
+    parsed: list[tuple[datetime, str]] = []
+    for value in values:
+        clean = str(value).strip()
+        if not clean:
+            continue
+        parsed.append((_parse_timestamp(clean), clean))
+    if not parsed:
+        return _utc_now()
+    return selector(parsed, key=lambda item: item[0])[1]
+
+
+def _parse_timestamp(value: str) -> datetime:
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    return datetime.fromisoformat(normalized)
+
+
+def _saved_answer_dedupe_key(normalized_question: str, field_type: str, answers: list[str]) -> tuple[str, str, tuple[str, ...]]:
+    return (normalized_question, field_type, tuple(answers))
+
+
+def _saved_answer_record_dedupe_key(record: SavedAnswerRecord) -> tuple[str, str, tuple[str, ...]]:
+    return _saved_answer_dedupe_key(record.normalizedQuestion, record.fieldType, record.answers)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

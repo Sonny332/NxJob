@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   activateAiProviderProfile,
@@ -12,8 +12,6 @@ import {
   createApplication,
   createOutcome,
   deleteAiProviderProfile,
-  draftFormAnswer,
-  draftFormAnswers,
   getDolIndexJob,
   getDolIndexStatus,
   getResumeArtifactUrl,
@@ -36,8 +34,6 @@ import {
   type DolIndexJob,
   type DolIndexStatus,
   type DolIndexStatusResponse,
-  type FormAnswerDraftResponse,
-  type FormAnswerDraftsResponse,
   type JobLeadRecord,
   type OutcomeSignalResponse,
   type OutcomeType,
@@ -47,14 +43,29 @@ import {
   type SponsorshipStatus
 } from "../../src/lib/api-client";
 import {
-  captureActiveFieldContext,
+  captureFormFieldAnswer,
   captureActiveTabContext,
-  fillFormFieldById,
-  fillActiveField,
   listOpenTabUrls,
   scanActiveTabFormFields,
   type PageContext
 } from "../../src/lib/page-capture";
+import {
+  applyRefreshedTrackedAnswerCandidates,
+  clearSavedAnswers,
+  copyAnswerAndTouch,
+  deleteSavedAnswer,
+  findAnswerCandidates,
+  isSavedAnswersUnavailableError,
+  loadSavedAnswers,
+  refreshAnswerCandidateRows,
+  refreshTrackedAnswerCandidateRows,
+  runAnswerLibraryMutationAndRefreshCandidates,
+  saveConfirmedAnswer,
+  updateSavedAnswer,
+  type AnswerCandidate,
+  type SavedAnswer
+} from "../../src/lib/form-answer-library";
+import type { DetectedFormField } from "../../src/lib/form-context";
 import {
   createWorkspaceRecord,
   emptyWorkflow,
@@ -68,6 +79,7 @@ import {
 } from "../../src/lib/workspace-state";
 
 type ServiceState = "checking" | "online" | "offline";
+type AnswerLibraryState = "checking" | "available" | "unavailable";
 type WorkflowKey = "sponsorship" | "resume" | "formAnswer";
 type TrackingStatus = "idle" | "running";
 type DolIndexAction = "idle" | "building" | "cleaning";
@@ -95,14 +107,10 @@ const OUTCOME_LABELS: Record<SidePanelOutcomeType, string> = {
   interview: "Interview",
   rejection: "Rejection"
 };
+const ANSWER_LIBRARY_RECOVERY_TEXT = "Start Local Service to use saved answers.";
 
 function isSensitiveField(field: { sensitiveKind?: string }): boolean {
   return Boolean(field.sensitiveKind?.trim());
-}
-
-function sensitiveFieldMessage(kind?: string): string {
-  const label = kind?.trim() || "sensitive";
-  return `NxJob will not draft or fill ${label} fields. Complete this field manually.`;
 }
 
 const APPLICATION_STATUS_BY_OUTCOME: Record<SidePanelOutcomeType, ApplicationRecord["status"]> = {
@@ -169,9 +177,19 @@ type PendingDuplicateCapture = {
   context: PageContext;
   capture: CaptureJobLeadResponse;
 };
+type FormAnswerMatchRow = {
+  field: DetectedFormField;
+  candidates: AnswerCandidate[];
+};
+type PendingAnswerSave = {
+  jobId: string;
+  field: DetectedFormField;
+  draftValue: string;
+};
 
 export function App() {
   const [serviceState, setServiceState] = useState<ServiceState>("checking");
+  const [answerLibraryState, setAnswerLibraryState] = useState<AnswerLibraryState>("checking");
   const [config, setConfig] = useState<ConfigStatusResponse | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceState>(INITIAL_WORKSPACE_STATE);
   const workspaceRef = useRef<WorkspaceState>(INITIAL_WORKSPACE_STATE);
@@ -192,6 +210,10 @@ export function App() {
   const [successReferenceCount, setSuccessReferenceCount] = useState<number | null>(null);
   const [dolIndexAction, setDolIndexAction] = useState<DolIndexAction>("idle");
   const [pendingDuplicateCapture, setPendingDuplicateCapture] = useState<PendingDuplicateCapture | null>(null);
+  const [formAnswerMatchesByJobId, setFormAnswerMatchesByJobId] = useState<Record<string, FormAnswerMatchRow[]>>({});
+  const [savedAnswers, setSavedAnswers] = useState<SavedAnswer[]>([]);
+  const [savedAnswerDrafts, setSavedAnswerDrafts] = useState<Record<string, string>>({});
+  const [pendingAnswerSave, setPendingAnswerSave] = useState<PendingAnswerSave | null>(null);
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -206,6 +228,7 @@ export function App() {
         void hydrateTrackingForJobs(state.jobs);
       }
     });
+    void refreshSavedAnswers({ rethrowUnavailable: false, notifyUnavailable: false });
     refreshServiceAndConfig();
 
     return () => {
@@ -253,8 +276,102 @@ export function App() {
       setAiProfiles(profiles.profiles);
     } catch (error) {
       setServiceState("offline");
+      markAnswerLibraryUnavailable();
       setMessage(error instanceof Error ? error.message : "NxJob local service is offline.");
     }
+  }
+
+  function applySavedAnswers(records: SavedAnswer[]) {
+    setAnswerLibraryState("available");
+    setSavedAnswers(records);
+    setSavedAnswerDrafts(
+      records.reduce<Record<string, string>>((drafts, entry) => {
+        drafts[entry.id] = entry.answers.join("\n");
+        return drafts;
+      }, {})
+    );
+  }
+
+  function markAnswerLibraryUnavailable() {
+    setAnswerLibraryState("unavailable");
+    setSavedAnswers([]);
+    setSavedAnswerDrafts({});
+    setPendingAnswerSave(null);
+    setFormAnswerMatchesByJobId((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([jobId, rows]) => [
+          jobId,
+          rows.map((row) => ({
+            ...row,
+            candidates: []
+          }))
+        ])
+      )
+    );
+  }
+
+  function requireAnswerLibraryActionAvailable(): boolean {
+    if (answerLibraryState !== "available") {
+      handleAnswerLibraryUnavailable();
+      return false;
+    }
+    return true;
+  }
+
+  function handleAnswerLibraryUnavailable() {
+    markAnswerLibraryUnavailable();
+    setMessage(ANSWER_LIBRARY_RECOVERY_TEXT);
+  }
+
+  function handleAnswerLibraryOperationError(error: unknown, fallbackMessage: string) {
+    if (isSavedAnswersUnavailableError(error)) {
+      handleAnswerLibraryUnavailable();
+      return;
+    }
+    setMessage(error instanceof Error ? `${fallbackMessage}: ${error.message}` : fallbackMessage);
+  }
+
+  async function refreshSavedAnswers(options: {
+    rethrowUnavailable?: boolean;
+    notifyUnavailable?: boolean;
+  } = {}): Promise<{ answers: SavedAnswer[]; available: boolean }> {
+    const { rethrowUnavailable = true, notifyUnavailable = true } = options;
+    try {
+      const answers = await loadSavedAnswers();
+      applySavedAnswers(answers);
+      return { answers, available: true };
+    } catch (error) {
+      handleAnswerLibraryUnavailable();
+      if (notifyUnavailable) {
+        setMessage(ANSWER_LIBRARY_RECOVERY_TEXT);
+      }
+      if (rethrowUnavailable) {
+        throw error;
+      }
+      return { answers: [], available: false };
+    }
+  }
+
+  async function refreshFormAnswerMatches(jobId: string, fields: DetectedFormField[], answers: SavedAnswer[]) {
+    const rows = fields.map((field) => ({
+      field,
+      candidates: findAnswerCandidates(field, answers)
+    }));
+    setFormAnswerMatchesByJobId((current) => ({
+      ...current,
+      [jobId]: rows
+    }));
+  }
+
+  function clearFormAnswerMatches(jobId: string) {
+    setFormAnswerMatchesByJobId((current) => ({
+      ...current,
+      [jobId]: []
+    }));
+  }
+
+  async function refreshAllFormAnswerMatches(answers: SavedAnswer[]) {
+    setFormAnswerMatchesByJobId((current) => refreshTrackedAnswerCandidateRows(current, answers));
   }
 
   async function buildDolIndexFromSettings() {
@@ -537,35 +654,22 @@ export function App() {
   async function runFormAnswer(job: JobWorkspaceRecord) {
     markWorkflow(job.id, "formAnswer", "running");
     try {
-      const formContext = await scanActiveTabFormFields();
-      const fields = formContext.fields.filter((field) => !isSensitiveField(field));
-      if (fields.length === 0) {
-        const fieldContext = await captureActiveFieldContext();
-        if (isSensitiveField(fieldContext)) {
-          const error = new Error(sensitiveFieldMessage(fieldContext.sensitiveKind));
-          setWorkflowError(job.id, "formAnswer", error);
-          setMessage(error.message);
-          return;
-        }
-        const result = await draftFormAnswer(job.jobLead, fieldContext);
-        setWorkflowResult(job.id, "formAnswer", result);
-        setMessage("Answer draft generated for the focused field. Review before filling.");
-        return;
+      const answerLibrary = await refreshSavedAnswers({ rethrowUnavailable: false, notifyUnavailable: false });
+      const fields = await scanActiveTabFormFields();
+      await refreshFormAnswerMatches(job.id, fields, answerLibrary.answers);
+      finishWorkflowWithoutResult(job.id, "formAnswer");
+      if (answerLibrary.available) {
+        setMessage(
+          fields.length > 0
+            ? `Found ${fields.length} form questions. Saved answers are matched locally.`
+            : "No supported form questions were detected on this page."
+        );
+      } else {
+        setMessage(ANSWER_LIBRARY_RECOVERY_TEXT);
       }
-      const result = await draftFormAnswers(job.jobLead, fields);
-      setWorkflowResult(job.id, "formAnswer", result);
-      setMessage(`Generated ${result.drafts.length} form answer drafts. Review before filling.`);
     } catch (error) {
+      clearFormAnswerMatches(job.id);
       setWorkflowError(job.id, "formAnswer", error);
-    }
-  }
-
-  async function confirmFill(answer: string) {
-    try {
-      await fillActiveField(answer);
-      setMessage("Filled current field. Review the page before submitting.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to fill current field.");
     }
   }
 
@@ -611,15 +715,6 @@ export function App() {
     setApiBaseUrl(preset.baseUrl);
     setApiModel(preset.model);
     setApiDisplayName(preset.label);
-  }
-
-  async function confirmFillField(fieldId: string, answer: string) {
-    try {
-      await fillFormFieldById(fieldId, answer);
-      setMessage("Filled selected field. Review the page before submitting.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to fill selected field.");
-    }
   }
 
   async function clearApiKey() {
@@ -742,6 +837,127 @@ export function App() {
     }
   }
 
+    async function copySavedAnswer(jobId: string, answerId: string, value: string) {
+      try {
+        if (!requireAnswerLibraryActionAvailable()) return;
+        await runAnswerLibraryMutationAndRefreshCandidates(
+          () => copyAnswerAndTouch(answerId, value, writeFormAnswerToClipboard),
+          async (answers) => {
+            applySavedAnswers(answers);
+            applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+          }
+        );
+        setMessage("Answer copied.");
+      } catch (error) {
+        handleAnswerLibraryOperationError(error, "Could not copy answer");
+      }
+  }
+
+  async function startSaveAnswer(jobId: string, field: DetectedFormField) {
+    try {
+      if (!requireAnswerLibraryActionAvailable()) return;
+      const captured = await captureFormFieldAnswer(field.fieldId);
+      const draftValue = captured.answers.join("\n").trim();
+      if (!draftValue) {
+        setMessage("This field is empty. Fill it on the page first, then save the answer.");
+        return;
+      }
+      setPendingAnswerSave({ jobId, field, draftValue });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to capture the current field answer.");
+    }
+  }
+
+  async function confirmSaveAnswer() {
+    if (!pendingAnswerSave) return;
+    if (!requireAnswerLibraryActionAvailable()) return;
+    const parsedAnswers = pendingAnswerSave.draftValue
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (parsedAnswers.length === 0) {
+      setMessage("Answer cannot be empty.");
+      return;
+    }
+    try {
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () =>
+          saveConfirmedAnswer({
+            question: pendingAnswerSave.field.questionText,
+            fieldType: pendingAnswerSave.field.inputType,
+            answers: parsedAnswers,
+            sensitive: isSensitiveField(pendingAnswerSave.field)
+          }).then(() => {}),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
+      setPendingAnswerSave(null);
+      setMessage("Saved to Local Service on this device.");
+    } catch (error) {
+      handleAnswerLibraryOperationError(error, "Could not save answer");
+    }
+  }
+
+  async function saveEditedAnswer(answerId: string) {
+    if (!requireAnswerLibraryActionAvailable()) return;
+    const draft = savedAnswerDrafts[answerId] ?? "";
+    const answers = draft
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (answers.length === 0) {
+      setMessage("Answer cannot be empty.");
+      return;
+    }
+    try {
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => updateSavedAnswer(answerId, answers),
+        async (refreshedAnswers) => {
+          applySavedAnswers(refreshedAnswers);
+          applyRefreshedTrackedAnswerCandidates(refreshedAnswers, setFormAnswerMatchesByJobId);
+        }
+      );
+      setMessage("Saved answer updated.");
+    } catch (error) {
+      handleAnswerLibraryOperationError(error, "Could not update saved answer");
+    }
+  }
+
+  async function removeSavedAnswer(answerId: string) {
+    if (!requireAnswerLibraryActionAvailable()) return;
+    try {
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => deleteSavedAnswer(answerId),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
+      setMessage("Saved answer removed.");
+    } catch (error) {
+      handleAnswerLibraryOperationError(error, "Could not remove saved answer");
+    }
+  }
+
+  async function clearAllSavedAnswers() {
+    if (!requireAnswerLibraryActionAvailable()) return;
+    if (!window.confirm("Clear all saved answers from Local Service on this device?")) return;
+    try {
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => clearSavedAnswers(),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
+      setMessage("Saved answers cleared.");
+    } catch (error) {
+      handleAnswerLibraryOperationError(error, "Could not clear saved answers");
+    }
+  }
+
   function hideJob(jobId: string) {
     updateWorkspaceState((current) => {
       const updated = updateWorkspaceJob(current, jobId, (job) => ({
@@ -806,6 +1022,25 @@ export function App() {
     );
   }
 
+  function finishWorkflowWithoutResult(jobId: string, key: WorkflowKey) {
+    updateWorkspaceState((current) =>
+      updateWorkspaceJob(current, jobId, (job) => ({
+        ...job,
+        updatedAt: new Date().toISOString(),
+        workflows: {
+          ...job.workflows,
+          [key]: {
+            status: "completed",
+            updatedAt: new Date().toISOString(),
+            traceId: "",
+            result: null,
+            error: ""
+          }
+        }
+      }))
+    );
+  }
+
   function setWorkflowResult(
     jobId: string,
     key: "sponsorship",
@@ -814,13 +1049,8 @@ export function App() {
   function setWorkflowResult(jobId: string, key: "resume", result: ResumeTailorResponse): ResumeTailorResponse;
   function setWorkflowResult(
     jobId: string,
-    key: "formAnswer",
-    result: FormAnswerDraftResponse | FormAnswerDraftsResponse
-  ): FormAnswerDraftResponse | FormAnswerDraftsResponse;
-  function setWorkflowResult(
-    jobId: string,
     key: WorkflowKey,
-    result: SponsorshipAnalyzeResponse | ResumeTailorResponse | FormAnswerDraftResponse | FormAnswerDraftsResponse
+    result: SponsorshipAnalyzeResponse | ResumeTailorResponse
   ) {
     const currentJob = workspaceRef.current.jobs.find((job) => job.id === jobId) ?? null;
     const resultToSave =
@@ -1015,6 +1245,55 @@ export function App() {
                 onCleanup={cleanupDolIndexFromSettings}
               />
             ) : null}
+            <div className="profile-list">
+              <div className="section-heading">
+                <strong>Saved Answers</strong>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={clearAllSavedAnswers}
+                  disabled={answerLibraryState !== "available" || savedAnswers.length === 0}
+                >
+                  Clear All
+                </button>
+              </div>
+              {savedAnswers.length > 0 ? (
+                savedAnswers.map((answer) => (
+                  <div key={answer.id} className="profile-row saved-answer-row">
+                    <textarea
+                      disabled={answerLibraryState !== "available"}
+                      value={savedAnswerDrafts[answer.id] ?? ""}
+                      onChange={(event) =>
+                        setSavedAnswerDrafts((current) => ({
+                          ...current,
+                          [answer.id]: event.target.value
+                        }))
+                      }
+                    />
+                    <div className="inline-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={answerLibraryState !== "available"}
+                        onClick={() => saveEditedAnswer(answer.id)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={answerLibraryState !== "available"}
+                        onClick={() => removeSavedAnswer(answer.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <small>{answerLibraryState === "available" ? "No saved answers yet." : ANSWER_LIBRARY_RECOVERY_TEXT}</small>
+              )}
+            </div>
             <small>
               NxJob uses local private config first. Environment variables are only a development fallback. Keys and resume contents are not written to logs.
             </small>
@@ -1088,8 +1367,14 @@ export function App() {
               onTailor={() => runTailor(focusedJob)}
               onTailorRefresh={() => runTailor(focusedJob, true)}
               onDraftAnswer={() => runFormAnswer(focusedJob)}
-              onFillAnswer={confirmFill}
-              onFillField={confirmFillField}
+              formAnswerMatches={formAnswerMatchesByJobId[focusedJob.id] ?? []}
+              answerLibraryAvailable={answerLibraryState === "available"}
+              answerLibraryMessage={ANSWER_LIBRARY_RECOVERY_TEXT}
+              onCopyAnswer={(answerId, value) => copySavedAnswer(focusedJob.id, answerId, value)}
+              onSaveAnswer={(field) => startSaveAnswer(focusedJob.id, field)}
+              pendingAnswerSave={pendingAnswerSave}
+              onPendingAnswerSaveChange={setPendingAnswerSave}
+              onConfirmSaveAnswer={confirmSaveAnswer}
               onFeedback={(rating) => saveFeedback(focusedJob, rating)}
               onHide={() => hideJob(focusedJob.id)}
               onRestore={() => restoreJob(focusedJob.id)}
@@ -1191,8 +1476,14 @@ function JobDetail(props: {
   onTailor: () => void;
   onTailorRefresh: () => void;
   onDraftAnswer: () => void;
-  onFillAnswer: (answer: string) => void;
-  onFillField: (fieldId: string, answer: string) => void;
+  formAnswerMatches: FormAnswerMatchRow[];
+  answerLibraryAvailable: boolean;
+  answerLibraryMessage: string;
+  onCopyAnswer: (answerId: string, value: string) => void;
+  onSaveAnswer: (field: DetectedFormField) => void;
+  pendingAnswerSave: PendingAnswerSave | null;
+  onPendingAnswerSaveChange: Dispatch<SetStateAction<PendingAnswerSave | null>>;
+  onConfirmSaveAnswer: () => void;
   onFeedback: (rating: ResumeFeedbackRating) => void;
   onHide: () => void;
   onRestore: () => void;
@@ -1206,7 +1497,6 @@ function JobDetail(props: {
   const { job } = props;
   const sponsorship = job.workflows.sponsorship.result;
   const resume = job.workflows.resume.result;
-  const formAnswer = job.workflows.formAnswer.result;
   const canRunAiSponsorship = canRunAiSponsorshipReview(sponsorship);
 
   return (
@@ -1281,12 +1571,27 @@ function JobDetail(props: {
 
       <div className="action-row">
         <button type="button" disabled={job.workflows.formAnswer.status === "running"} onClick={props.onDraftAnswer}>
-          {job.workflows.formAnswer.status === "running" ? "Drafting..." : "Fill Form Answer"}
+          {job.workflows.formAnswer.status === "running" ? "Scanning..." : "Find Form Answers"}
         </button>
       </div>
 
-      {formAnswer ? (
-        <FormAnswerResult result={formAnswer} onFillAnswer={props.onFillAnswer} onFillField={props.onFillField} />
+      {props.formAnswerMatches.length > 0 ? (
+        <FormAnswerResult
+          jobId={job.id}
+          rows={props.formAnswerMatches}
+          answerLibraryAvailable={props.answerLibraryAvailable}
+          answerLibraryMessage={props.answerLibraryMessage}
+          onCopyAnswer={props.onCopyAnswer}
+          onSaveAnswer={props.onSaveAnswer}
+          pendingAnswerSave={props.pendingAnswerSave}
+          onPendingAnswerSaveChange={props.onPendingAnswerSaveChange}
+          onConfirmSaveAnswer={props.onConfirmSaveAnswer}
+        />
+      ) : job.workflows.formAnswer.status === "completed" ? (
+        <section className="result-block">
+          <strong>Form Answers</strong>
+          <small>No supported form questions were detected.</small>
+        </section>
       ) : (
         <WorkflowMessage run={job.workflows.formAnswer} />
       )}
@@ -1355,60 +1660,97 @@ function CaptureResultCard(props: {
 }
 
 function FormAnswerResult(props: {
-  result: FormAnswerDraftResponse | FormAnswerDraftsResponse;
-  onFillAnswer: (answer: string) => void;
-  onFillField: (fieldId: string, answer: string) => void;
+  jobId: string;
+  rows: FormAnswerMatchRow[];
+  answerLibraryAvailable: boolean;
+  answerLibraryMessage: string;
+  onCopyAnswer: (answerId: string, value: string) => void;
+  onSaveAnswer: (field: DetectedFormField) => void;
+  pendingAnswerSave: PendingAnswerSave | null;
+  onPendingAnswerSaveChange: Dispatch<SetStateAction<PendingAnswerSave | null>>;
+  onConfirmSaveAnswer: () => void;
 }) {
-  if ("drafts" in props.result) {
-    return (
-      <section className="result-block">
-        <strong>Answer Drafts</strong>
-        <small>{props.result.ai_used ? "AI + fixed profile drafts" : "Fixed profile drafts"} · Requires review</small>
-        {props.result.drafts.map((draft) => {
-          const fieldId = draft.field_id;
-          return (
-            <article key={draft.id} className="draft-card">
-              <span>{draft.question_text || draft.field_label || "Detected field"}</span>
+  return (
+    <section className="result-block">
+      <strong>Form Answers</strong>
+      <small>{props.answerLibraryAvailable ? "Detected locally. Copy or save only." : props.answerLibraryMessage}</small>
+      <div className="draft-list">
+        {props.rows.map((row) => (
+          <article key={row.field.fieldId} className="draft-card">
+            <span>{row.field.questionText || "Choose manually"}</span>
+            {row.candidates.length > 0 ? (
+              row.candidates.map((candidate) => (
+                <div key={candidate.answer.id} className="answer-row">
+                  <div>
+                    <p>{candidate.answer.answers.join(" / ")}</p>
+                    <small>{candidate.confidenceLabel}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={!props.answerLibraryAvailable}
+                    onClick={() => props.onCopyAnswer(candidate.answer.id, candidate.answer.answers.join("\n"))}
+                  >
+                    Copy
+                  </button>
+                </div>
+              ))
+            ) : (
               <small>
-                {draft.intent || "custom"} · {draft.answer_type || "text"} · {Math.round((draft.confidence ?? 0) * 100)}%
+                {props.answerLibraryAvailable
+                  ? row.field.inputType === "custom_select" && !row.field.questionText
+                    ? "Choose manually"
+                    : "No saved answer"
+                  : props.answerLibraryMessage}
               </small>
-              <p>{draft.answer}</p>
-              {draft.selected_option ? <small>Selected option: {draft.selected_option}</small> : null}
-              {draft.evidence_summary.length > 0 ? <small>Evidence: {draft.evidence_summary.join(" ")}</small> : null}
-              {draft.risk_flags.length > 0 ? <small>{draft.risk_flags.join(" ")}</small> : null}
+            )}
+            {!(row.field.inputType === "custom_select" && !row.field.questionText) ? (
               <button
                 type="button"
                 className="secondary-button"
-                disabled={!fieldId}
-                onClick={() => props.onFillField(fieldId, draft.answer)}
+                disabled={!props.answerLibraryAvailable}
+                onClick={() => props.onSaveAnswer(row.field)}
               >
-                Fill This Field
+                Save this answer
               </button>
-            </article>
-          );
-        })}
-        {props.result.warnings.length > 0 ? <small>{props.result.warnings.join(" ")}</small> : null}
-      </section>
-    );
-  }
-
-  const singleResult = props.result as FormAnswerDraftResponse;
-  return (
-    <section className="result-block">
-      <strong>Answer Draft</strong>
-      <small>
-        {singleResult.draft.question_text || singleResult.draft.field_label || "Detected field"} ·{" "}
-        {singleResult.draft.intent || "custom"} · {Math.round((singleResult.draft.confidence ?? 0) * 100)}%
-      </small>
-      <p>{singleResult.draft.answer}</p>
-      {singleResult.draft.selected_option ? <small>Selected option: {singleResult.draft.selected_option}</small> : null}
-      {singleResult.draft.evidence_summary.length > 0 ? (
-        <small>Evidence: {singleResult.draft.evidence_summary.join(" ")}</small>
-      ) : null}
-      <small>{singleResult.ai_used ? "AI draft" : "Fixed profile answer"} · Requires review</small>
-      <button type="button" className="secondary-button" onClick={() => props.onFillAnswer(singleResult.draft.answer)}>
-        Fill Current Field
-      </button>
+            ) : null}
+            {props.pendingAnswerSave?.jobId === props.jobId && props.pendingAnswerSave.field.fieldId === row.field.fieldId ? (
+              <div className="answer-save-confirmation" aria-label="Save answer confirmation">
+                <div className="result-heading">
+                  <div>
+                    <strong>Save This Answer</strong>
+                    <span>{props.pendingAnswerSave.field.inputType}</span>
+                  </div>
+                </div>
+                <div className="compact-list">
+                  <span>Question</span>
+                  <p>{props.pendingAnswerSave.field.questionText}</p>
+                </div>
+                <label>
+                  <span>Answer</span>
+                  <textarea
+                    value={props.pendingAnswerSave.draftValue}
+                    onChange={(event) =>
+                      props.onPendingAnswerSaveChange((current) =>
+                        current ? { ...current, draftValue: event.target.value } : current
+                      )
+                    }
+                  />
+                </label>
+                <small>Only saved to Local Service on this device.</small>
+                <div className="inline-actions">
+                  <button type="button" disabled={!props.answerLibraryAvailable} onClick={props.onConfirmSaveAnswer}>
+                    Confirm Save
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => props.onPendingAnswerSaveChange(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1814,6 +2156,13 @@ async function copyText(value: string) {
   } catch {
     // The visible link/path remains available when clipboard permission is unavailable.
   }
+}
+
+async function writeFormAnswerToClipboard(value: string): Promise<void> {
+  if (!value.trim()) {
+    throw new Error("There is no answer to copy.");
+  }
+  await navigator.clipboard.writeText(value);
 }
 
 function isActiveDolJob(job: DolIndexJob): boolean {

@@ -17,17 +17,26 @@ export type PageContext = {
   pageTextExcerpt: string;
 };
 
-export type FieldContext = {
+export type DetectedFormField = {
   fieldId: string;
-  label: string;
-  questionText?: string;
-  placeholder: string;
-  surroundingText: string;
-  currentValue: string;
-  inputType: string;
-  required?: boolean;
+  questionText: string;
+  inputType: "text" | "textarea" | "radio" | "checkbox" | "select" | "custom_select";
+  required: boolean;
+  sensitiveKind: string;
+  recognitionConfidence: number;
+};
+
+export type CapturedFormAnswer = {
+  fieldId: string;
+  answers: string[];
+};
+
+export type FieldContext = DetectedFormField & {
+  label?: string;
+  placeholder?: string;
+  surroundingText?: string;
+  currentValue?: string;
   options?: string[];
-  sensitiveKind?: string;
 };
 
 const MAX_TEXT_EXCERPT = 12000;
@@ -50,357 +59,37 @@ type ElementLike = {
   textContent?: string | null;
 };
 
-let recentSelectionSnapshot: RecentSelectionSnapshot = {
-  text: "",
-  href: "",
-  capturedAt: 0
+type ScanFieldElement = {
+  tagName?: string;
+  id?: string;
+  required?: boolean;
+  checked?: boolean;
+  parentElement?: ScanFieldElement | null;
+  children?: ScanFieldElement[];
+  isConnected?: boolean;
+  textContent?: string | null;
+  value?: string;
+  selectedOptions?: ArrayLike<{ text?: string | null; value?: string | null }>;
+  options?: ArrayLike<{ text?: string | null; value?: string | null }>;
+  getAttribute(name: string): string | null;
+  closest(selector: string): ScanFieldElement | null;
+  querySelector(selector: string): ScanFieldElement | null;
+  querySelectorAll(selector: string): ArrayLike<ScanFieldElement>;
+  cloneNode?(deep?: boolean): ScanFieldElement;
+  removeChild?(child: ScanFieldElement): void;
+  remove?(): void;
+  getBoundingClientRect(): { width: number; height: number };
+  dispatchEvent?(event: Event): void;
 };
 
-initializeRecentSelectionTracking();
-
-export function capturePageContext(): PageContext {
-  const selectedText = resolveSelectedText(
-    window.getSelection()?.toString().trim() ?? "",
-    getRecentSelectionText()
-  );
-  const pageText = document.body?.innerText.trim() ?? "";
-  const metadata = extractJobMetadata();
-  const linkedInJobId = extractLinkedInJobId(window.location.href);
-  const canonicalUrl = canonicalizeLinkedInJobUrl(window.location.href);
-  const linkedInDescription = linkedInJobId ? extractLinkedInJobDescriptionFromRoot(document) : "";
-  const capture = resolveCaptureText({
-    selectedText,
-    linkedInDescription,
-    pageText,
-    linkedInJobId,
-  });
-
-  return {
-    url: window.location.href,
-    title: document.title,
-    jobTitle: metadata.jobTitle,
-    companyName: metadata.companyName,
-    location: metadata.location,
-    metadataSource: metadata.source,
-    metadataConfidence: metadata.confidence,
-    selectedText,
-    captureText: capture.text,
-    captureSource: capture.source,
-    captureExtractor: capture.extractor,
-    captureWarnings: capture.warnings,
-    rawUrl: window.location.href,
-    canonicalUrl,
-    linkedinJobId: linkedInJobId,
-    pageTextExcerpt: pageText.slice(0, MAX_TEXT_EXCERPT)
-  };
-}
-
-function initializeRecentSelectionTracking() {
-  if (typeof document === "undefined" || typeof window === "undefined") return;
-
-  const captureSelection = () => {
-    const text = window.getSelection()?.toString().trim() ?? "";
-    if (!text) return;
-    recentSelectionSnapshot = {
-      text,
-      href: window.location.href,
-      capturedAt: Date.now()
-    };
-  };
-
-  document.addEventListener("selectionchange", captureSelection, true);
-  window.addEventListener("mouseup", captureSelection, true);
-  window.addEventListener("keyup", captureSelection, true);
-}
-
-function getRecentSelectionText(now = Date.now()): string {
-  if (!recentSelectionSnapshot.text) return "";
-  if (recentSelectionSnapshot.href !== window.location.href) return "";
-  if (now - recentSelectionSnapshot.capturedAt > RECENT_SELECTION_MAX_AGE_MS) return "";
-  return recentSelectionSnapshot.text;
-}
-
-export function captureActiveFieldContext(): FieldContext {
-  const element = document.activeElement;
-  if (!isFillableElement(element)) {
-    throw new Error("Focus a form field first, then retry Fill Form Answer.");
-  }
-
-  return {
-    fieldId: ensureFieldId(element),
-    label: findLabel(element),
-    questionText: findQuestionText(element),
-    placeholder: element.getAttribute("placeholder") ?? "",
-    surroundingText: surroundingText(element),
-    currentValue: element.value,
-    inputType: element.getAttribute("type") ?? element.tagName.toLowerCase(),
-    required: element.required,
-    sensitiveKind: sensitiveKind(element)
-  };
-}
-
-export function scanFormFields(): { fields: FieldContext[]; url: string; title: string } {
-  const fields = Array.from(document.querySelectorAll("input, textarea, select"))
-    .filter(isSupportedFormElement)
-    .filter(isVisibleElement)
-    .slice(0, MAX_FORM_FIELDS)
-    .map(fieldContextFromElement);
-
-  return {
-    fields,
-    url: window.location.href,
-    title: document.title
-  };
-}
-
-export function fillActiveField(value: string): { filled: boolean } {
-  const element = document.activeElement;
-  if (!isFillableElement(element)) {
-    throw new Error("Focus a form field first, then confirm again.");
-  }
-  setNativeValue(element, value);
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-  element.dispatchEvent(new Event("change", { bubbles: true }));
-  return { filled: true };
-}
-
-export function fillFieldById(fieldId: string, value: string): { filled: boolean } {
-  const element = document.querySelector(`[data-nxjob-field-id="${CSS.escape(fieldId)}"]`);
-  if (!isSupportedFormElement(element)) {
-    throw new Error("NxJob could not find this form field anymore. Rescan the page and retry.");
-  }
-  setElementValue(element, value);
-  return { filled: true };
-}
-
-function fieldContextFromElement(element: SupportedFormElement): FieldContext {
-  return {
-    fieldId: ensureFieldId(element),
-    label: findLabel(element),
-    questionText: findQuestionText(element),
-    placeholder: element.getAttribute("placeholder") ?? "",
-    surroundingText: surroundingText(element),
-    currentValue: elementValue(element),
-    inputType: inputType(element),
-    required: element.required,
-    options: fieldOptions(element),
-    sensitiveKind: sensitiveKind(element)
-  };
-}
-
-type SupportedFormElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-
-function isFillableElement(element: Element | null): element is HTMLInputElement | HTMLTextAreaElement {
-  if (!element) return false;
-  if (element instanceof HTMLTextAreaElement) return true;
-  if (!(element instanceof HTMLInputElement)) return false;
-  const type = (element.getAttribute("type") ?? "text").toLowerCase();
-  return !["button", "checkbox", "file", "hidden", "image", "radio", "reset", "submit"].includes(type);
-}
-
-function isSupportedFormElement(element: Element | null): element is SupportedFormElement {
-  if (!element) return false;
-  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
-  if (!(element instanceof HTMLInputElement)) return false;
-  const type = (element.getAttribute("type") ?? "text").toLowerCase();
-  return !["button", "file", "hidden", "image", "reset", "submit"].includes(type);
-}
-
-function findLabel(element: SupportedFormElement): string {
-  if (element.id) {
-    const label = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
-    if (label?.textContent?.trim()) return label.textContent.trim();
-  }
-  const wrappingLabel = element.closest("label");
-  if (wrappingLabel?.textContent?.trim()) return wrappingLabel.textContent.trim();
-  const ariaLabel = element.getAttribute("aria-label");
-  if (ariaLabel) return ariaLabel;
-  const labelled = textFromIdRefs(element.getAttribute("aria-labelledby"));
-  if (labelled) return labelled;
-  return "";
-}
-
-function findQuestionText(element: SupportedFormElement): string {
-  const labelled = findLabel(element);
-  const legend = element.closest("fieldset")?.querySelector("legend")?.textContent?.trim() ?? "";
-  const heading = closestHeadingText(element);
-  const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
-  const describedBy = textFromIdRefs(element.getAttribute("aria-describedby"));
-  const localText = localFieldText(element);
-  return firstUsefulText([legend, labelled, heading, describedBy, placeholder, localText]);
-}
-
-function closestHeadingText(element: Element): string {
-  let current: Element | null = element.parentElement;
-  for (let depth = 0; current && depth < 5; depth += 1) {
-    const heading = current.querySelector("h1,h2,h3,h4,h5,h6,[role='heading']");
-    if (heading?.textContent?.trim()) return heading.textContent.trim();
-    current = current.parentElement;
-  }
-  return "";
-}
-
-function firstUsefulText(values: string[]): string {
-  for (const value of values) {
-    const clean = compactText(value);
-    if (clean && clean.length <= 300) return clean;
-  }
-  return "";
-}
-
-function surroundingText(element: Element): string {
-  const container = nearestTextContainer(element);
-  return compactText(container?.textContent ?? "").slice(0, 400);
-}
-
-function localFieldText(element: Element): string {
-  const values = [
-    textFromIdRefs((element as HTMLElement).getAttribute("aria-describedby")),
-    compactText(element.parentElement?.textContent ?? ""),
-    compactText(nearestTextContainer(element)?.textContent ?? "")
-  ];
-  for (const value of values) {
-    if (value && value.length <= 220) return value;
-  }
-  return "";
-}
-
-function nearestTextContainer(element: Element): Element | null {
-  const selectors = [
-    "fieldset",
-    "[role='group']",
-    "[role='radiogroup']",
-    "[role='row']",
-    "li",
-    "td",
-    "tr",
-    "section",
-    "article",
-    "div"
-  ];
-  let current: Element | null = element.parentElement;
-  for (let depth = 0; current && depth < 5; depth += 1) {
-    if (!current.matches("form, body")) {
-      const text = compactText(current.textContent ?? "");
-      if (text && text.length <= 400 && selectors.some((selector) => current?.matches(selector))) {
-        return current;
-      }
-    }
-    current = current.parentElement;
-  }
-  return element.parentElement;
-}
-
-function textFromIdRefs(value: string | null): string {
-  if (!value) return "";
-  const parts = value
-    .split(/\s+/)
-    .map((id) => document.getElementById(id))
-    .filter((node): node is HTMLElement => Boolean(node))
-    .map((node) => compactText(node.textContent ?? ""))
-    .filter(Boolean);
-  return parts.join(" ").slice(0, 300);
-}
-
-function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
-  const prototype = element instanceof HTMLTextAreaElement
-    ? HTMLTextAreaElement.prototype
-    : HTMLInputElement.prototype;
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-  descriptor?.set?.call(element, value);
-}
-
-function setElementValue(element: SupportedFormElement, value: string) {
-  if (element instanceof HTMLSelectElement) {
-    const matched = Array.from(element.options).find(
-      (option) => option.value === value || option.text.trim().toLowerCase() === value.trim().toLowerCase()
-    );
-    element.value = matched?.value ?? value;
-  } else if (element instanceof HTMLInputElement && ["checkbox", "radio"].includes(inputType(element))) {
-    const matched = matchingChoiceElement(element, value);
-    if (matched) {
-      matched.checked = true;
-      matched.dispatchEvent(new Event("input", { bubbles: true }));
-      matched.dispatchEvent(new Event("change", { bubbles: true }));
-      return;
-    }
-    element.checked = ["true", "yes", "1", "checked"].includes(value.trim().toLowerCase());
-  } else {
-    setNativeValue(element, value);
-  }
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-  element.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function matchingChoiceElement(element: HTMLInputElement, value: string): HTMLInputElement | null {
-  const name = element.getAttribute("name");
-  const candidates = name
-    ? Array.from(document.querySelectorAll(`input[name="${CSS.escape(name)}"]`))
-    : [element];
-  const expected = compactText(value).toLowerCase();
-  for (const candidate of candidates) {
-    if (!(candidate instanceof HTMLInputElement)) continue;
-    const label = compactText(findLabel(candidate)).toLowerCase();
-    const candidateValue = compactText(candidate.value).toLowerCase();
-    if (expected && (label === expected || candidateValue === expected)) return candidate;
-  }
-  return null;
-}
-
-function elementValue(element: SupportedFormElement): string {
-  if (element instanceof HTMLInputElement && ["checkbox", "radio"].includes(inputType(element))) {
-    return element.checked ? "checked" : "";
-  }
-  return element.value;
-}
-
-function inputType(element: SupportedFormElement): string {
-  if (element instanceof HTMLSelectElement) return "select";
-  return element.getAttribute("type") ?? element.tagName.toLowerCase();
-}
-
-function fieldOptions(element: SupportedFormElement): string[] | undefined {
-  if (element instanceof HTMLSelectElement) {
-    return Array.from(element.options).map((option) => option.text.trim()).filter(Boolean);
-  }
-  if (element instanceof HTMLInputElement && ["radio", "checkbox"].includes(inputType(element))) {
-    const name = element.getAttribute("name");
-    if (name) {
-      const peers = Array.from(document.querySelectorAll(`input[name="${CSS.escape(name)}"]`))
-        .filter((peer): peer is HTMLInputElement => peer instanceof HTMLInputElement)
-        .filter((peer) => inputType(peer) === inputType(element));
-      const labels = peers.map((peer) => findLabel(peer) || peer.value).map(compactText).filter(Boolean);
-      return Array.from(new Set(labels));
-    }
-    const label = findLabel(element) || element.value;
-    return label ? [label] : undefined;
-  }
-  return undefined;
-}
-
-function isVisibleElement(element: SupportedFormElement): boolean {
-  const rect = element.getBoundingClientRect();
-  const style = window.getComputedStyle(element);
-  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-}
-
-function ensureFieldId(element: SupportedFormElement): string {
-  const existing = element.getAttribute("data-nxjob-field-id");
-  if (existing) return existing;
-  const id = `nxjob-field-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  element.setAttribute("data-nxjob-field-id", id);
-  return id;
-}
-
-function sensitiveKind(element: SupportedFormElement): string {
-  const text = `${findLabel(element)} ${element.getAttribute("name") ?? ""} ${element.id} ${element.getAttribute("autocomplete") ?? ""}`.toLowerCase();
-  if (text.includes("ssn") || text.includes("social security")) return "ssn";
-  if (text.includes("disability") || text.includes("veteran") || text.includes("race") || text.includes("gender")) {
-    return "eeoc";
-  }
-  if (text.includes("password")) return "password";
-  return "";
-}
+type FieldRegistryEntry = {
+  field: DetectedFormField;
+  questionText: string;
+  reliableLabel: boolean;
+  elements: ScanFieldElement[];
+  pageUrl: string;
+  batchId: number;
+};
 
 type JobMetadata = {
   jobTitle: string;
@@ -417,8 +106,323 @@ type CaptureTextResolution = {
   warnings: string[];
 };
 
+let recentSelectionSnapshot: RecentSelectionSnapshot = {
+  text: "",
+  href: "",
+  capturedAt: 0
+};
+
+const fieldRegistry = new Map<string, FieldRegistryEntry>();
+const fieldGroupScopes = new WeakMap<object, string>();
+let fieldSequence = 0;
+let scanBatchSequence = 0;
+let fieldGroupScopeSequence = 0;
+
+initializeRecentSelectionTracking();
+
+export function capturePageContext(): PageContext {
+  const selectedText = resolveSelectedText(
+    globalWindow().getSelection?.()?.toString().trim() ?? "",
+    getRecentSelectionText()
+  );
+  const pageText = globalDocument().body?.innerText?.trim() ?? "";
+  const metadata = extractJobMetadata();
+  const linkedInJobId = extractLinkedInJobId(globalWindow().location.href);
+  const canonicalUrl = canonicalizeLinkedInJobUrl(globalWindow().location.href);
+  const linkedInDescription = linkedInJobId ? extractLinkedInJobDescriptionFromRoot(globalDocument()) : "";
+  const capture = resolveCaptureText({
+    selectedText,
+    linkedInDescription,
+    pageText,
+    linkedInJobId
+  });
+
+  return {
+    url: globalWindow().location.href,
+    title: globalDocument().title,
+    jobTitle: metadata.jobTitle,
+    companyName: metadata.companyName,
+    location: metadata.location,
+    metadataSource: metadata.source,
+    metadataConfidence: metadata.confidence,
+    selectedText,
+    captureText: capture.text,
+    captureSource: capture.source,
+    captureExtractor: capture.extractor,
+    captureWarnings: capture.warnings,
+    rawUrl: globalWindow().location.href,
+    canonicalUrl,
+    linkedinJobId: linkedInJobId,
+    pageTextExcerpt: pageText.slice(0, MAX_TEXT_EXCERPT)
+  };
+}
+
+export function scanFormFields(): DetectedFormField[] {
+  fieldRegistry.clear();
+  const pageUrl = globalWindow().location.href;
+  const batchId = ++scanBatchSequence;
+  const fields: DetectedFormField[] = [];
+  const grouped = new Set<string>();
+  const candidates = Array.from(
+    globalDocument().querySelectorAll('input, textarea, select, button[aria-haspopup="listbox"]') ?? []
+  ) as unknown as ScanFieldElement[];
+
+  for (const element of candidates) {
+    if (!isVisibleElement(element)) continue;
+    const inputType = detectInputType(element);
+    if (!inputType) continue;
+
+    if ((inputType === "radio" || inputType === "checkbox") && fieldGroupKey(element, inputType)) {
+      const groupKey = fieldGroupKey(element, inputType) as string;
+      if (grouped.has(groupKey)) continue;
+      grouped.add(groupKey);
+      const groupElements = candidates.filter(
+        (candidate) => detectInputType(candidate) === inputType && fieldGroupKey(candidate, inputType) === groupKey
+      );
+      const descriptor = buildDetectedField(groupElements, inputType, pageUrl, batchId, true);
+      if (descriptor) {
+        fields.push(descriptor.field);
+        fieldRegistry.set(descriptor.field.fieldId, descriptor);
+      }
+      continue;
+    }
+
+    const descriptor = buildDetectedField([element], inputType, pageUrl, batchId, false);
+    if (descriptor) {
+      fields.push(descriptor.field);
+      fieldRegistry.set(descriptor.field.fieldId, descriptor);
+    }
+
+    if (fields.length >= MAX_FORM_FIELDS) break;
+  }
+
+  return fields;
+}
+
+export function captureFormFieldAnswer(fieldId: string): CapturedFormAnswer {
+  const entry = fieldRegistry.get(fieldId);
+  if (!entry) {
+    throw new Error("NxJob could not find this field anymore. Rescan the page and retry.");
+  }
+  if (
+    entry.pageUrl !== globalWindow().location.href ||
+    entry.elements.some((element) => element.isConnected === false)
+  ) {
+    throw new Error("NxJob form scan is no longer current. Rescan the page and retry.");
+  }
+  if (entry.field.inputType === "custom_select" && !entry.reliableLabel) {
+    throw new Error("Manually select this custom field before you save an answer.");
+  }
+
+  return {
+    fieldId,
+    answers: captureAnswers(entry)
+  };
+}
+
+export function resetFormFieldRegistryForTest(): void {
+  fieldRegistry.clear();
+  fieldSequence = 0;
+  scanBatchSequence = 0;
+  fieldGroupScopeSequence = 0;
+}
+
+function buildDetectedField(
+  elements: ScanFieldElement[],
+  inputType: DetectedFormField["inputType"],
+  pageUrl: string,
+  batchId: number,
+  isChoiceGroup: boolean
+): FieldRegistryEntry | null {
+  const primary = elements[0];
+  const questionText = isChoiceGroup ? findChoiceGroupQuestionText(primary) : findQuestionText(primary);
+  const reliableLabel = Boolean(questionText);
+
+  if (inputType !== "custom_select" && !reliableLabel) return null;
+
+  const field: DetectedFormField = {
+    fieldId: createFieldId(inputType, questionText || primary.id || String(fieldSequence + 1), batchId),
+    questionText,
+    inputType,
+    required: elements.some((element) => Boolean(element.required)),
+    sensitiveKind: sensitiveKind(questionText, elements),
+    recognitionConfidence: reliableLabel ? 0.98 : 0
+  };
+
+  return {
+    field,
+    questionText,
+    reliableLabel,
+    elements,
+    pageUrl,
+    batchId
+  };
+}
+
+function createFieldId(inputType: string, seed: string, batchId: number): string {
+  fieldSequence += 1;
+  const base = seed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32) || "field";
+  return `nxjob-${inputType}-${batchId}-${base}-${fieldSequence}`;
+}
+
+function captureAnswers(entry: FieldRegistryEntry): string[] {
+  switch (entry.field.inputType) {
+    case "text":
+    case "textarea":
+      return captureTextAnswer(entry.elements[0]);
+    case "radio":
+      return entry.elements
+        .filter((element) => Boolean(element.checked))
+        .map((element) => typeof element.value === "string" ? element.value.trim() : "")
+        .filter(Boolean);
+    case "checkbox":
+      return entry.elements
+        .filter((element) => Boolean(element.checked))
+        .map((element) => typeof element.value === "string" ? element.value.trim() : "")
+        .filter(Boolean);
+    case "select":
+      return Array.from(entry.elements[0].selectedOptions ?? [])
+        .map((option) => compactText(option.text ?? option.value ?? ""))
+        .filter(Boolean);
+    case "custom_select": {
+      const text = compactText(entry.elements[0].textContent ?? "");
+      return text ? [text] : [];
+    }
+  }
+}
+
+function captureTextAnswer(element: ScanFieldElement): string[] {
+  const rawValue = element.value;
+  const value = typeof rawValue === "string" ? rawValue.trim() : "";
+  return value ? [value] : [];
+}
+
+function detectInputType(element: ScanFieldElement): DetectedFormField["inputType"] | "" {
+  const tag = tagNameOf(element);
+  if (tag === "textarea") return "textarea";
+  if (tag === "select") return "select";
+  if (tag === "button" && element.getAttribute("aria-haspopup") === "listbox") return "custom_select";
+  if (tag !== "input") return "";
+
+  const type = attr(element, "type").toLowerCase() || "text";
+  if (["button", "file", "hidden", "image", "reset", "submit", "password"].includes(type)) return "";
+  if (isCredentialField(element)) return "";
+  if (type === "radio") return "radio";
+  if (type === "checkbox") return "checkbox";
+  return "text";
+}
+
+function isCredentialField(element: ScanFieldElement): boolean {
+  const autocomplete = attr(element, "autocomplete").toLowerCase();
+  return ["current-password", "new-password", "username", "one-time-code"].includes(autocomplete);
+}
+
+function fieldGroupKey(element: ScanFieldElement, inputType: "radio" | "checkbox"): string | null {
+  const name = attr(element, "name");
+  if (!name) return null;
+  const scope = element.closest("fieldset") ?? element.closest("form") ?? element;
+  return `${inputType}:${name}:${fieldGroupScopeId(scope)}`;
+}
+
+function fieldGroupScopeId(scope: object): string {
+  const existing = fieldGroupScopes.get(scope);
+  if (existing) return existing;
+  const next = `scope-${++fieldGroupScopeSequence}`;
+  fieldGroupScopes.set(scope, next);
+  return next;
+}
+
+function findQuestionText(element: ScanFieldElement): string {
+  const explicit = labelForElement(element);
+  if (explicit) return explicit;
+  const wrapped = wrappingLabelText(element);
+  if (wrapped) return wrapped;
+  const legend = fieldsetLegendText(element);
+  return legend;
+}
+
+function findChoiceGroupQuestionText(element: ScanFieldElement): string {
+  return fieldsetLegendText(element);
+}
+
+function labelForElement(element: ScanFieldElement): string {
+  if (!element.id) return "";
+  const label = globalDocument().querySelector(`label[for="${escapeSelector(element.id)}"]`) as ScanFieldElement | null;
+  return compactText(label?.textContent ?? "");
+}
+
+function wrappingLabelText(element: ScanFieldElement): string {
+  const label = element.closest("label");
+  if (!label) return "";
+  return labelTextWithoutControls(label);
+}
+
+function fieldsetLegendText(element: ScanFieldElement): string {
+  const fieldset = element.closest("fieldset");
+  const legend = fieldset?.querySelector("legend");
+  return compactText(legend?.textContent ?? "");
+}
+
+function labelTextWithoutControls(label: ScanFieldElement): string {
+  const cloned = label.cloneNode?.(true);
+  if (!cloned || typeof cloned.querySelectorAll !== "function") {
+    return "";
+  }
+  for (const control of Array.from(cloned.querySelectorAll("input, textarea, select, button"))) {
+    if (typeof control.remove === "function") {
+      control.remove();
+      continue;
+    }
+    control.parentElement?.removeChild?.(control);
+  }
+  return compactText(cloned.textContent ?? "");
+}
+
+function sensitiveKind(questionText: string, elements: ScanFieldElement[]): string {
+  const combined = `${questionText} ${elements.map((element) => `${attr(element, "name")} ${attr(element, "autocomplete")} ${element.id ?? ""}`).join(" ")}`.toLowerCase();
+  if (combined.includes("ssn") || combined.includes("social security")) return "ssn";
+  if (/(veteran|disability|race|gender|ethnicity|eeo)/.test(combined)) return "eeoc";
+  if (combined.includes("salary") || combined.includes("compensation")) return "salary";
+  return "";
+}
+
+function isVisibleElement(element: ScanFieldElement): boolean {
+  const rect = element.getBoundingClientRect();
+  const style = globalWindow().getComputedStyle?.(element as unknown as Element) ?? { visibility: "visible", display: "block" };
+  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+}
+
+function initializeRecentSelectionTracking() {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+
+  const captureSelection = () => {
+    const text = window.getSelection?.()?.toString().trim() ?? "";
+    if (!text) return;
+    recentSelectionSnapshot = {
+      text,
+      href: window.location.href,
+      capturedAt: Date.now()
+    };
+  };
+
+  document.addEventListener?.("selectionchange", captureSelection, true);
+  window.addEventListener?.("mouseup", captureSelection, true);
+  window.addEventListener?.("keyup", captureSelection, true);
+}
+
+function getRecentSelectionText(now = Date.now()): string {
+  if (!recentSelectionSnapshot.text) return "";
+  if (recentSelectionSnapshot.href !== globalWindow().location.href) return "";
+  if (now - recentSelectionSnapshot.capturedAt > RECENT_SELECTION_MAX_AGE_MS) return "";
+  return recentSelectionSnapshot.text;
+}
+
 function extractJobMetadata(): JobMetadata {
-  const host = window.location.hostname.toLowerCase();
+  const host = globalWindow().location.hostname.toLowerCase();
   if (host.includes("linkedin.")) {
     const linkedIn = extractLinkedInJobMetadata();
     if (linkedIn.jobTitle || linkedIn.companyName) return linkedIn;
@@ -500,7 +504,7 @@ export function extractLinkedInJobDescriptionFromRoot(root: QueryRoot): string {
 export function cleanLinkedInJobDescriptionText(value: string): string {
   return compactText(value)
     .replace(/^About the job\s*/i, "")
-    .replace(/(?:\.\.\.|\u2026)\s*more\b/gi, "")
+    .replace(/(?:\.\.\.|…)\s*more\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -564,7 +568,6 @@ export function resolveCaptureText(input: {
   };
 }
 
-
 function extractGenericJobMetadata(): JobMetadata {
   const jobTitle = textFromSelectors(["[data-job-title]", "[class*='job-title']", "[class*='JobTitle']", "main h1", "h1"]);
   const companyName = textFromSelectors([
@@ -583,7 +586,7 @@ function extractGenericJobMetadata(): JobMetadata {
   };
 }
 
-function textFromSelectors(selectors: string[], root: QueryRoot = document): string {
+function textFromSelectors(selectors: string[], root: QueryRoot = globalDocument()): string {
   for (const selector of selectors) {
     const element = root.querySelector(selector);
     const text = compactText(element?.textContent ?? "");
@@ -601,4 +604,24 @@ function stripLinkedInNoise(value: string): string {
     .replace(/\s+with verification$/i, "")
     .replace(/\s+actively hiring.*$/i, "")
     .replace(/\s+promoted.*$/i, "");
+}
+
+function tagNameOf(element: ScanFieldElement): string {
+  return (element.tagName ?? "").toLowerCase();
+}
+
+function attr(element: ScanFieldElement, name: string): string {
+  return element.getAttribute(name) ?? "";
+}
+
+function globalWindow(): Window & typeof globalThis {
+  return window;
+}
+
+function globalDocument(): Document {
+  return document;
+}
+
+function escapeSelector(value: string): string {
+  return globalThis.CSS?.escape ? globalThis.CSS.escape(value) : value;
 }
