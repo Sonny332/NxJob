@@ -53,6 +53,7 @@ AI provider presets, base URLs, model names, and API keys are stored by the loca
 - The extension may migrate once from the old browser key `nxjob.form-answer-library.v1` into the Local Service file. It must never migrate workspace state, AI drafts, or `nxjob.workspace.v1`.
 - There is no supported browser-offline answer-library copy after migration. If the Local Service is down, the extension may still scan the page structure locally, but it must not display, save, edit, delete, clear, or copy answers.
 - If a user deletes an older extension installation, that installation's Chrome storage is gone and NxJob cannot recover it later. A newly installed extension can still read the Local Service answer library directly once the service is running.
+- As of July 26, 2026, P1b remains intentionally deferred: NxJob still relies on the local machine trust boundary for which local extensions or processes can reach the loopback service. CORS only shapes browser fetch behavior; it does not authenticate callers or block arbitrary local processes.
 
 ## Current Recognition Limits
 

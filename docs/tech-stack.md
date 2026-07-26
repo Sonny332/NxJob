@@ -41,14 +41,14 @@ AI layer:
 
 - Sponsorship ambiguity analysis when JD and local rules are insufficient.
 - Resume evidence selection and rewrite.
-- ATS form answers are currently recognized, saved, and matched entirely in browser storage; they do not call AI or REST.
+- ATS form scanning and matching remain in the extension, while the canonical saved-answer library is owned by the Local Service and accessed through loopback REST only. Saved answers do not call AI.
 
 ## Phase Rules
 
 Phase 1:
 
 - Implement three extension buttons: `Analyze Sponsorship`, `Tailor Resume`, `Find Form Answers`.
-- Implement REST endpoints for sponsorship analysis and resume tailoring. `Find Form Answers` remains browser-local in this milestone.
+- Implement REST endpoints for sponsorship analysis, resume tailoring, and the saved-answer library used by `Find Form Answers`. Form scanning stays browser-local in this milestone.
 - Store data locally.
 - Keep schemas MCP-compatible.
 - Do not implement MCP server.

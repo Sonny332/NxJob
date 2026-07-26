@@ -50,12 +50,16 @@ import {
   type PageContext
 } from "../../src/lib/page-capture";
 import {
+  applyRefreshedTrackedAnswerCandidates,
   clearSavedAnswers,
   copyAnswerAndTouch,
   deleteSavedAnswer,
   findAnswerCandidates,
   isSavedAnswersUnavailableError,
   loadSavedAnswers,
+  refreshAnswerCandidateRows,
+  refreshTrackedAnswerCandidateRows,
+  runAnswerLibraryMutationAndRefreshCandidates,
   saveConfirmedAnswer,
   updateSavedAnswer,
   type AnswerCandidate,
@@ -364,6 +368,10 @@ export function App() {
       ...current,
       [jobId]: []
     }));
+  }
+
+  async function refreshAllFormAnswerMatches(answers: SavedAnswer[]) {
+    setFormAnswerMatchesByJobId((current) => refreshTrackedAnswerCandidateRows(current, answers));
   }
 
   async function buildDolIndexFromSettings() {
@@ -832,10 +840,13 @@ export function App() {
     async function copySavedAnswer(jobId: string, answerId: string, value: string) {
       try {
         if (!requireAnswerLibraryActionAvailable()) return;
-        await copyAnswerAndTouch(answerId, value, writeFormAnswerToClipboard);
-        const fields = (formAnswerMatchesByJobId[jobId] ?? []).map((row) => row.field);
-        const answerLibrary = await refreshSavedAnswers();
-        await refreshFormAnswerMatches(jobId, fields, answerLibrary.answers);
+        await runAnswerLibraryMutationAndRefreshCandidates(
+          () => copyAnswerAndTouch(answerId, value, writeFormAnswerToClipboard),
+          async (answers) => {
+            applySavedAnswers(answers);
+            applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+          }
+        );
         setMessage("Answer copied.");
       } catch (error) {
         handleAnswerLibraryOperationError(error, "Could not copy answer");
@@ -869,16 +880,20 @@ export function App() {
       return;
     }
     try {
-      await saveConfirmedAnswer({
-        question: pendingAnswerSave.field.questionText,
-        fieldType: pendingAnswerSave.field.inputType,
-        answers: parsedAnswers,
-        sensitive: isSensitiveField(pendingAnswerSave.field)
-      });
-      const fields = (formAnswerMatchesByJobId[pendingAnswerSave.jobId] ?? []).map((row) => row.field);
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () =>
+          saveConfirmedAnswer({
+            question: pendingAnswerSave.field.questionText,
+            fieldType: pendingAnswerSave.field.inputType,
+            answers: parsedAnswers,
+            sensitive: isSensitiveField(pendingAnswerSave.field)
+          }).then(() => {}),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
       setPendingAnswerSave(null);
-      const answerLibrary = await refreshSavedAnswers();
-      await refreshFormAnswerMatches(pendingAnswerSave.jobId, fields, answerLibrary.answers);
       setMessage("Saved to Local Service on this device.");
     } catch (error) {
       handleAnswerLibraryOperationError(error, "Could not save answer");
@@ -897,8 +912,13 @@ export function App() {
       return;
     }
     try {
-      await updateSavedAnswer(answerId, answers);
-      await refreshSavedAnswers();
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => updateSavedAnswer(answerId, answers),
+        async (refreshedAnswers) => {
+          applySavedAnswers(refreshedAnswers);
+          applyRefreshedTrackedAnswerCandidates(refreshedAnswers, setFormAnswerMatchesByJobId);
+        }
+      );
       setMessage("Saved answer updated.");
     } catch (error) {
       handleAnswerLibraryOperationError(error, "Could not update saved answer");
@@ -908,8 +928,13 @@ export function App() {
   async function removeSavedAnswer(answerId: string) {
     if (!requireAnswerLibraryActionAvailable()) return;
     try {
-      await deleteSavedAnswer(answerId);
-      await refreshSavedAnswers();
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => deleteSavedAnswer(answerId),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
       setMessage("Saved answer removed.");
     } catch (error) {
       handleAnswerLibraryOperationError(error, "Could not remove saved answer");
@@ -920,8 +945,13 @@ export function App() {
     if (!requireAnswerLibraryActionAvailable()) return;
     if (!window.confirm("Clear all saved answers from Local Service on this device?")) return;
     try {
-      await clearSavedAnswers();
-      await refreshSavedAnswers();
+      await runAnswerLibraryMutationAndRefreshCandidates(
+        () => clearSavedAnswers(),
+        async (answers) => {
+          applySavedAnswers(answers);
+          applyRefreshedTrackedAnswerCandidates(answers, setFormAnswerMatchesByJobId);
+        }
+      );
       setMessage("Saved answers cleared.");
     } catch (error) {
       handleAnswerLibraryOperationError(error, "Could not clear saved answers");

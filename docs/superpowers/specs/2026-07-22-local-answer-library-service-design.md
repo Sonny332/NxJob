@@ -24,7 +24,7 @@ Store user-confirmed form answers in the Local Service private directory so they
 
 - Answers, including sensitive answers, remain on the local machine.
 - Answer content is never sent to AI providers, remote APIs, logs, PromptLog, or Git.
-- The service accepts only localhost extension requests through the existing REST boundary.
+- The service currently exposes the existing loopback REST boundary on the local machine. As of July 26, 2026, P1b caller authentication/origin restriction is intentionally deferred, so this boundary should be described as a local trust boundary rather than as authenticated extension-only access.
 - JSON writes are atomic so an interrupted write does not corrupt the last valid library.
 
 ## Compatibility

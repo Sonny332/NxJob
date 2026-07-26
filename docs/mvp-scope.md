@@ -18,7 +18,7 @@ User layer:
   - `Analyze Sponsorship`
   - `Tailor Resume`
   - `Find Form Answers`
-- User review and confirmation before applying, copying answers, or saving confirmed answers. Current ATS form handling is browser-local: it recognizes questions, matches saved answers, and supports copy/save only.
+- User review and confirmation before applying, copying answers, or saving confirmed answers. Current ATS form handling scans and matches in the extension, while confirmed saved answers are read and mutated through the Local Service answer-library REST endpoints.
 - Visible local service connection status.
 
 Local runtime layer:
@@ -29,7 +29,7 @@ Local runtime layer:
 - JobLead capture and dedupe by URL/hash.
 - Sponsorship evidence record.
 - DOCX resume generation.
-- Local saved answer library in browser storage.
+- Local saved answer library owned by the Local Service private JSON file.
 - Application and outcome tracking.
 - SuccessReference creation for positive replies, screens, interviews, and offers.
 
@@ -127,7 +127,7 @@ M6 exits when:
 
 - A sample form question is recognized and can match a confirmed local answer.
 - User confirmation is required before copying or saving an answer.
-- No field filling, selection, submission, AI call, or REST call is performed for ATS form answers.
+- No field filling, selection, submission, or AI call is performed for ATS form answers. Scanning and matching remain extension-local, while confirmed-answer list/create/update/delete/clear/touch operations may call the Local Service REST boundary after user confirmation where required.
 
 M7 exits when:
 

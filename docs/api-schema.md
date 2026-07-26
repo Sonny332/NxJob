@@ -11,6 +11,7 @@
 - The Local Service owns the only active saved-answer library at `%LOCALAPPDATA%\NxJob\private\form-answer-library.v1.json`.
 - Browser storage migration is limited to one import from the legacy `nxjob.form-answer-library.v1` key. Workspace state, AI drafts, and any `nxjob.workspace.v1` data must never be migrated into the service answer library.
 - Saved answers do not use AI, cloud sync, or a browser-offline fallback copy. When the Local Service is unavailable, the extension may still scan the page locally, but answer-library reads, writes, copy, and save actions must stay unavailable.
+- As of July 26, 2026, P1b caller authentication/origin restriction for the loopback saved-answer endpoints is intentionally deferred. CORS must not be described as caller authentication or as protection against arbitrary local processes or extensions.
 
 ## Common Types
 

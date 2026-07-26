@@ -192,11 +192,12 @@ export async function touchSavedAnswer(id: string): Promise<void> {
 
 export async function copyAnswerAndTouch(
   id: string,
-  value: string,
+  _value: string,
   writeToClipboard: (value: string) => Promise<void>
 ): Promise<void> {
-  await preflightSavedAnswersService();
-  await writeToClipboard(value);
+  await ensureServiceImport();
+  const currentValue = await loadSavedAnswerContent(id);
+  await writeToClipboard(currentValue);
   await touchSavedAnswer(id);
 }
 
@@ -229,6 +230,44 @@ export function findAnswerCandidates(field: DetectedFormField, answers: SavedAns
     }));
 
   return matches;
+}
+
+export function refreshAnswerCandidateRows<TRow extends { field: DetectedFormField }>(
+  rows: TRow[],
+  answers: SavedAnswer[]
+): Array<TRow & { candidates: AnswerCandidate[] }> {
+  return rows.map((row) => ({
+    ...row,
+    candidates: findAnswerCandidates(row.field, answers)
+  }));
+}
+
+export function refreshTrackedAnswerCandidateRows<TRow extends { field: DetectedFormField }>(
+  trackedRows: Record<string, TRow[]>,
+  answers: SavedAnswer[]
+): Record<string, Array<TRow & { candidates: AnswerCandidate[] }>> {
+  return Object.fromEntries(
+    Object.entries(trackedRows).map(([key, rows]) => [key, refreshAnswerCandidateRows(rows, answers)])
+  );
+}
+
+export function applyRefreshedTrackedAnswerCandidates<TRow extends { field: DetectedFormField }>(
+  answers: SavedAnswer[],
+  applyTrackedRowsUpdate: (
+    updater: (current: Record<string, TRow[]>) => Record<string, Array<TRow & { candidates: AnswerCandidate[] }>>
+  ) => void
+): void {
+  applyTrackedRowsUpdate((current) => refreshTrackedAnswerCandidateRows(current, answers));
+}
+
+export async function runAnswerLibraryMutationAndRefreshCandidates(
+  mutate: () => Promise<void>,
+  applyRefreshedRows: (answers: SavedAnswer[]) => Promise<void> | void
+): Promise<SavedAnswer[]> {
+  await mutate();
+  const answers = await loadSavedAnswers();
+  await applyRefreshedRows(answers);
+  return answers;
 }
 
 export async function __resetFormAnswerLibraryForTest(): Promise<void> {
@@ -271,6 +310,15 @@ async function ensureServiceImport(): Promise<void> {
 
 async function fetchSavedAnswersFromService(): Promise<SavedAnswer[]> {
   return withServiceUnavailableMessage(() => serviceClient().load());
+}
+
+async function loadSavedAnswerContent(id: string): Promise<string> {
+  const answer = (await fetchSavedAnswersFromService()).find((entry) => entry.id === id);
+  const value = answer?.answers.join("\n").trim() ?? "";
+  if (!value) {
+    throw new Error("There is no answer to copy.");
+  }
+  return value;
 }
 
 async function readMigrationMarker(): Promise<boolean> {

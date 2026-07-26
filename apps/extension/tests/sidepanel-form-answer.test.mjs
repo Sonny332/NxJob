@@ -67,6 +67,26 @@ test("answer-library handlers guard again before copy save edit delete and clear
   }
 });
 
+test("answer-library mutations refresh all visible candidates from the canonical service answers", () => {
+  const appBody = sliceBetween(appSource, "export function App()", "function DolIndexSettings");
+
+  assert.match(appBody, /async function refreshAllFormAnswerMatches\(answers: SavedAnswer\[\]\)/);
+  assert.match(appBody, /setFormAnswerMatchesByJobId\(\(current\) => refreshTrackedAnswerCandidateRows\(current, answers\)\)/);
+
+  for (const marker of [
+    "async function copySavedAnswer",
+    "async function confirmSaveAnswer",
+    "async function saveEditedAnswer",
+    "async function removeSavedAnswer",
+    "async function clearAllSavedAnswers"
+  ]) {
+    const fnBody = sliceBetween(appSource, marker, "\n\n  ");
+    assert.match(fnBody, /await runAnswerLibraryMutationAndRefreshCandidates\(/, marker);
+    assert.match(fnBody, /applySavedAnswers\([A-Za-z]+\);/, marker);
+    assert.match(fnBody, /applyRefreshedTrackedAnswerCandidates\([A-Za-z]+, setFormAnswerMatchesByJobId\);/, marker);
+  }
+});
+
 test("answer-library operation failures funnel through the unified unavailable handler", () => {
   const appBody = sliceBetween(appSource, "export function App()", "function DolIndexSettings");
 

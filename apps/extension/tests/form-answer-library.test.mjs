@@ -8,6 +8,9 @@ import {
   deleteSavedAnswer,
   findAnswerCandidates,
   loadSavedAnswers,
+  applyRefreshedTrackedAnswerCandidates,
+  refreshAnswerCandidateRows,
+  runAnswerLibraryMutationAndRefreshCandidates,
   saveConfirmedAnswer,
   touchSavedAnswer,
   updateSavedAnswer
@@ -290,6 +293,215 @@ test("copy preflight failure does not write to the clipboard", async () => {
   assert.deepEqual(clipboardWrites, []);
 });
 
+test("copy re-reads the canonical answer content before touching recency", async () => {
+  const storage = createStorageSpy({ [MARKER_KEY]: true });
+  const saved = createSavedAnswerRecord("Portfolio website", "text", ["https://portfolio.example"]);
+  const service = createServiceStub({ answers: [saved] });
+  const clipboardWrites = [];
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  await copyAnswerAndTouch(saved.id, "stale-ui-value", async (value) => {
+    clipboardWrites.push(value);
+  });
+
+  assert.deepEqual(clipboardWrites, [saved.answers.join("\n")]);
+  assert.deepEqual(service.calls.touches, [saved.id]);
+});
+
+test("copy fails before clipboard output when the requested record no longer exists", async () => {
+  const storage = createStorageSpy({ [MARKER_KEY]: true });
+  const service = createServiceStub({ answers: [] });
+  const clipboardWrites = [];
+  __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+  await assert.rejects(
+    copyAnswerAndTouch("missing-answer", "stale-ui-value", async (value) => {
+      clipboardWrites.push(value);
+    }),
+    /There is no answer to copy\./
+  );
+
+  assert.deepEqual(clipboardWrites, []);
+  assert.equal(service.calls.touches.length, 0);
+});
+
+test("candidate refresh behavior replaces stale values for copy save edit delete and clear", async () => {
+  const field = createFieldFixture("LinkedIn profile URL", "field-linkedin");
+  const initialRows = [
+    {
+      field,
+      candidates: [
+        {
+          answer: createSavedAnswerRecord("LinkedIn profile URL", "text", ["stale-ui-value"]),
+          score: 1,
+          confidenceLabel: "High"
+        }
+      ]
+    }
+  ];
+
+  const scenarios = [
+    ["copy", [createSavedAnswerRecord("LinkedIn profile URL", "text", ["https://linkedin.example/current"])]],
+    ["save", [createSavedAnswerRecord("LinkedIn profile URL", "text", ["https://linkedin.example/new"])]],
+    ["edit", [createSavedAnswerRecord("LinkedIn profile URL", "text", ["https://linkedin.example/edited"])]],
+    ["delete", []],
+    ["clear", []]
+  ];
+
+  for (const [name, canonicalAnswers] of scenarios) {
+    const refreshed = refreshAnswerCandidateRows(initialRows, canonicalAnswers);
+    const values = refreshed[0].candidates.map((candidate) => candidate.answer.answers[0]);
+    assert.ok(!values.includes("stale-ui-value"), `${name} should remove stale candidate values`);
+    assert.deepEqual(values, canonicalAnswers.map((answer) => answer.answers[0]), name);
+  }
+});
+
+test("mutation workflows reload canonical answers and apply refreshed candidate rows", async () => {
+  const field = createFieldFixture("LinkedIn profile URL", "field-linkedin");
+  const currentRecord = createSavedAnswerRecord("LinkedIn profile URL", "text", ["https://linkedin.example/current"]);
+  currentRecord.id = "answer-current";
+  const staleRecord = createSavedAnswerRecord("LinkedIn profile URL", "text", ["stale-ui-value"]);
+  staleRecord.id = "answer-stale";
+  const trackedRows = {
+    "job-1": [
+      {
+        field,
+        candidates: [
+          {
+            answer: staleRecord,
+            score: 1,
+            confidenceLabel: "High"
+          }
+        ]
+      }
+    ]
+  };
+
+  const scenarios = [
+    {
+      name: "copy",
+      initialAnswers: [structuredClone(currentRecord)],
+      mutate: async () => {
+        await copyAnswerAndTouch("answer-current", "stale-ui-value", async () => {});
+      },
+      expectedValues: ["https://linkedin.example/current"]
+    },
+    {
+      name: "save",
+      initialAnswers: [],
+      mutate: async () => {
+        await saveConfirmedAnswer({
+          question: "LinkedIn profile URL",
+          fieldType: "text",
+          answers: ["https://linkedin.example/new"],
+          sensitive: false
+        });
+      },
+      expectedValues: ["https://linkedin.example/new"]
+    },
+    {
+      name: "edit",
+      initialAnswers: [structuredClone(currentRecord)],
+      mutate: async () => {
+        await updateSavedAnswer("answer-current", ["https://linkedin.example/edited"]);
+      },
+      expectedValues: ["https://linkedin.example/edited"]
+    },
+    {
+      name: "delete",
+      initialAnswers: [structuredClone(currentRecord)],
+      mutate: async () => {
+        await deleteSavedAnswer("answer-current");
+      },
+      expectedValues: []
+    },
+    {
+      name: "clear",
+      initialAnswers: [structuredClone(currentRecord)],
+      mutate: async () => {
+        await clearSavedAnswers();
+      },
+      expectedValues: []
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    const storage = createStorageSpy({ [MARKER_KEY]: true });
+    const service = createServiceStub({ answers: scenario.initialAnswers });
+    __setFormAnswerLibraryTestHooks({ storageArea: storage, serviceClient: service.client });
+
+    let appliedAnswers = null;
+    let trackedState = structuredClone(trackedRows);
+    await runAnswerLibraryMutationAndRefreshCandidates(scenario.mutate, async (nextAnswers) => {
+      appliedAnswers = nextAnswers;
+      applyRefreshedTrackedAnswerCandidates(nextAnswers, (updater) => {
+        trackedState = updater(trackedState);
+      });
+    });
+
+    const values = trackedState["job-1"][0].candidates.map((candidate) => candidate.answer.answers[0]);
+    assert.ok(!values.includes("stale-ui-value"), `${scenario.name} should remove stale candidate values`);
+    assert.deepEqual(values, scenario.expectedValues, scenario.name);
+    assert.deepEqual(
+      appliedAnswers.map((answer) => answer.answers[0]),
+      scenario.expectedValues,
+      `${scenario.name} canonical answers`
+    );
+  }
+});
+
+test("functional candidate refresh preserves intervening rows while refreshing existing rows from canonical answers", async () => {
+  const fieldOne = createFieldFixture("LinkedIn profile URL", "field-linkedin");
+  const fieldTwo = createFieldFixture("Portfolio website", "field-portfolio");
+  const trackedRows = {
+    "job-1": [
+      {
+        field: fieldOne,
+        candidates: [
+          {
+            answer: createSavedAnswerWithId("answer-stale", "LinkedIn profile URL", "text", ["stale-ui-value"]),
+            score: 1,
+            confidenceLabel: "High"
+          }
+        ]
+      }
+    ]
+  };
+  const canonicalAnswers = [
+    createSavedAnswerWithId("answer-current", "LinkedIn profile URL", "text", ["https://linkedin.example/current"]),
+    createSavedAnswerWithId("answer-portfolio", "Portfolio website", "text", ["https://portfolio.example"])
+  ];
+  let trackedState = structuredClone(trackedRows);
+
+  applyRefreshedTrackedAnswerCandidates(canonicalAnswers, (updater) => {
+    trackedState = {
+      ...trackedState,
+      "job-2": [
+        {
+          field: fieldTwo,
+          candidates: [
+            {
+              answer: createSavedAnswerWithId("answer-portfolio", "Portfolio website", "text", ["https://portfolio.example"]),
+              score: 1,
+              confidenceLabel: "High"
+            }
+          ]
+        }
+      ]
+    };
+    trackedState = updater(trackedState);
+  });
+
+  assert.deepEqual(
+    trackedState["job-1"][0].candidates.map((candidate) => candidate.answer.answers[0]),
+    ["https://linkedin.example/current"]
+  );
+  assert.deepEqual(
+    trackedState["job-2"][0].candidates.map((candidate) => candidate.answer.answers[0]),
+    ["https://portfolio.example"]
+  );
+});
+
 test("service-backed mutations return the fixed offline message when the service disappears", async () => {
   const storage = createStorageSpy({ [MARKER_KEY]: true });
 
@@ -345,6 +557,20 @@ run();
 function createSavedAnswerRecord(question, fieldType, answers, sensitive = false, lastUsedAt = "2026-07-05T00:00:00Z") {
   return {
     id: `answer-${Math.random().toString(36).slice(2, 10)}`,
+    question,
+    normalizedQuestion: normalizeQuestionForFixture(question),
+    fieldType,
+    answers,
+    sensitive,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-02T00:00:00Z",
+    lastUsedAt
+  };
+}
+
+function createSavedAnswerWithId(id, question, fieldType, answers, sensitive = false, lastUsedAt = "2026-07-05T00:00:00Z") {
+  return {
+    id,
     question,
     normalizedQuestion: normalizeQuestionForFixture(question),
     fieldType,
@@ -446,4 +672,15 @@ function normalizeQuestionForFixture(question) {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function createFieldFixture(questionText, fieldId) {
+  return {
+    questionText,
+    inputType: "text",
+    required: false,
+    sensitiveKind: "",
+    recognitionConfidence: 0.98,
+    fieldId
+  };
 }
